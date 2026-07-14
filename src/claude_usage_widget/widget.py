@@ -1,12 +1,18 @@
 import tkinter as tk
 
-from .widget_state import MOOD_COLORS, MOOD_FACES, WidgetState
+from .tetris_logic import TOTAL_ROWS, filled_row_count, is_game_over, row_color
+from .widget_state import WidgetState
 
 _TRANSPARENT_KEY = "magenta"
+_EMPTY_ROW_COLOR = "#D1D5DB"
+_BORDER_COLOR = "#374151"
+_ANIMATION_DELAY_MS = 400
 
 
 class CharacterWidget:
-    SIZE = 56
+    WIDTH = 40
+    HEIGHT = 100
+    _ROW_HEIGHT = HEIGHT / TOTAL_ROWS
 
     def __init__(self, root, initial_pos, on_move, on_right_click):
         self.top = tk.Toplevel(root)
@@ -19,21 +25,43 @@ class CharacterWidget:
             pass  # 일부 환경(테스트 등)에서는 지원하지 않을 수 있음
 
         x, y = initial_pos
-        self.top.geometry(f"{self.SIZE}x{self.SIZE}+{x}+{y}")
+        self.top.geometry(f"{self.WIDTH}x{self.HEIGHT}+{x}+{y}")
 
         self.canvas = tk.Canvas(
-            self.top, width=self.SIZE, height=self.SIZE, bg=_TRANSPARENT_KEY, highlightthickness=0
+            self.top, width=self.WIDTH, height=self.HEIGHT, bg=_TRANSPARENT_KEY, highlightthickness=0
         )
         self.canvas.pack()
-        first_mood = next(iter(MOOD_COLORS))
-        self._circle = self.canvas.create_oval(2, 2, self.SIZE - 2, self.SIZE - 2, fill=MOOD_COLORS[first_mood], outline="")
-        self._face = self.canvas.create_text(self.SIZE / 2, self.SIZE / 2, text="", font=("Segoe UI", 16))
+
+        self._row_rects = []
+        for row_index in range(1, TOTAL_ROWS + 1):
+            y1 = self.HEIGHT - row_index * self._ROW_HEIGHT
+            y2 = self.HEIGHT - (row_index - 1) * self._ROW_HEIGHT
+            rect = self.canvas.create_rectangle(
+                2, y1 + 1, self.WIDTH - 2, y2 - 1, fill=_EMPTY_ROW_COLOR, outline=_BORDER_COLOR
+            )
+            self._row_rects.append(rect)
+
+        self._game_over_bg = self.canvas.create_rectangle(
+            0, 0, self.WIDTH, self.HEIGHT, fill="#000000", stipple="gray50", outline="", state="hidden"
+        )
+        self._game_over_text = self.canvas.create_text(
+            self.WIDTH / 2,
+            self.HEIGHT / 2,
+            text="GAME\nOVER",
+            fill="white",
+            font=("Segoe UI", 9, "bold"),
+            justify="center",
+            state="hidden",
+        )
 
         self._on_move = on_move
         self._on_right_click = on_right_click
         self._drag_start = None
         self._tooltip_win = None
         self._tooltip_text = ""
+
+        self._filled_rows = None  # None이면 아직 첫 apply_state가 호출되지 않은 상태
+        self._animation_after_id = None
 
         self.canvas.bind("<ButtonPress-1>", self._start_drag)
         self.canvas.bind("<B1-Motion>", self._do_drag)
@@ -42,10 +70,47 @@ class CharacterWidget:
         self.canvas.bind("<Enter>", self._show_tooltip)
         self.canvas.bind("<Leave>", self._hide_tooltip)
 
-    def apply_state(self, state: WidgetState) -> None:
-        self.canvas.itemconfig(self._circle, fill=MOOD_COLORS[state.mood])
-        self.canvas.itemconfig(self._face, text=MOOD_FACES[state.mood])
+    def apply_state(self, state: WidgetState, thresholds: dict) -> None:
         self._tooltip_text = state.tooltip
+        target = filled_row_count(state.headline_percent)
+
+        if self._animation_after_id is not None:
+            self.canvas.after_cancel(self._animation_after_id)
+            self._animation_after_id = None
+
+        if self._filled_rows is None or target < self._filled_rows:
+            self._filled_rows = target
+            self._redraw(thresholds)
+        elif target > self._filled_rows:
+            self._animate_fill_step(target, thresholds)
+        else:
+            self._redraw(thresholds)
+
+        self._set_game_over_visible(is_game_over(state.headline_percent))
+
+    def _animate_fill_step(self, target, thresholds):
+        if self._filled_rows >= target:
+            return
+        self._filled_rows += 1
+        self._redraw(thresholds)
+        if self._filled_rows < target:
+            self._animation_after_id = self.canvas.after(
+                _ANIMATION_DELAY_MS, self._animate_fill_step, target, thresholds
+            )
+        else:
+            self._animation_after_id = None
+
+    def _redraw(self, thresholds):
+        for row_index, rect in enumerate(self._row_rects, start=1):
+            if row_index <= self._filled_rows:
+                self.canvas.itemconfig(rect, fill=row_color(row_index, thresholds))
+            else:
+                self.canvas.itemconfig(rect, fill=_EMPTY_ROW_COLOR)
+
+    def _set_game_over_visible(self, visible):
+        state = "normal" if visible else "hidden"
+        self.canvas.itemconfig(self._game_over_bg, state=state)
+        self.canvas.itemconfig(self._game_over_text, state=state)
 
     def _start_drag(self, event):
         self._drag_start = (event.x, event.y)
@@ -67,7 +132,7 @@ class CharacterWidget:
     def _show_tooltip(self, event):
         if self._tooltip_win is not None:
             return
-        x = self.top.winfo_x() + self.SIZE + 5
+        x = self.top.winfo_x() + self.WIDTH + 5
         y = self.top.winfo_y()
         self._tooltip_win = tk.Toplevel(self.top)
         self._tooltip_win.overrideredirect(True)

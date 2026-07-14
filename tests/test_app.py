@@ -8,7 +8,7 @@ from claude_usage_widget.widget_state import Mood, WidgetState
 
 
 class _FakeWidget:
-    def apply_state(self, state):
+    def apply_state(self, state, thresholds):
         pass
 
 
@@ -118,6 +118,7 @@ def test_fetch_result_returns_exception_when_fetch_fails(tmp_path, monkeypatch):
 
 def test_apply_state_notifies_once_on_auth_error_then_resets():
     instance = app_module.App.__new__(app_module.App)
+    instance.config = {"thresholds": {"warning": 50, "danger": 80}}
     instance.widget = _FakeWidget()
     instance.detail_panel = _FakeDetailPanel()
     instance.tray_icon = _FakeTrayIcon()

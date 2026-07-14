@@ -4,7 +4,9 @@ import tkinter as tk
 import pytest
 
 from claude_usage_widget.widget import CharacterWidget
-from claude_usage_widget.widget_state import Mood, MOOD_COLORS, MOOD_FACES, WidgetState
+from claude_usage_widget.widget_state import Mood, WidgetState
+
+THRESHOLDS = {"warning": 60, "danger": 85}
 
 
 @pytest.fixture
@@ -15,16 +17,51 @@ def root():
     r.destroy()
 
 
-def test_apply_state_updates_color_and_face(root):
-    moves = []
-    clicks = []
-    widget = CharacterWidget(root, (10, 10), on_move=moves.append, on_right_click=lambda: clicks.append(1))
+def _state(percent, tooltip="t"):
+    return WidgetState(mood=Mood.CALM, headline_percent=percent, tooltip=tooltip, detail_rows=[])
 
-    state = WidgetState(mood=Mood.DANGER, headline_percent=90, tooltip="t", detail_rows=[])
-    widget.apply_state(state)
 
-    assert widget.canvas.itemcget(widget._circle, "fill") == MOOD_COLORS[Mood.DANGER]
-    assert widget.canvas.itemcget(widget._face, "text") == MOOD_FACES[Mood.DANGER]
+def test_first_apply_state_fills_rows_immediately_without_animation(root):
+    widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
+    widget.apply_state(_state(65), THRESHOLDS)
+    assert widget._filled_rows == 7
+    assert widget._animation_after_id is None
+    widget.top.destroy()
+
+
+def test_increasing_percent_animates_filling_rows_over_time(root):
+    widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
+    widget.apply_state(_state(20), THRESHOLDS)
+    assert widget._filled_rows == 2
+
+    widget.apply_state(_state(50), THRESHOLDS)
+    assert widget._filled_rows == 3  # 한 칸만 즉시 채워지고 나머지는 예약됨
+    assert widget._animation_after_id is not None
+    widget.top.destroy()
+
+
+def test_decreasing_percent_resets_immediately_without_animation(root):
+    widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
+    widget.apply_state(_state(80), THRESHOLDS)
+    assert widget._filled_rows == 8
+
+    widget.apply_state(_state(10), THRESHOLDS)
+    assert widget._filled_rows == 1
+    assert widget._animation_after_id is None
+    widget.top.destroy()
+
+
+def test_game_over_overlay_shown_at_100_percent(root):
+    widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
+    widget.apply_state(_state(100), THRESHOLDS)
+    assert widget.canvas.itemcget(widget._game_over_text, "state") == "normal"
+    widget.top.destroy()
+
+
+def test_game_over_overlay_hidden_below_100_percent(root):
+    widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
+    widget.apply_state(_state(50), THRESHOLDS)
+    assert widget.canvas.itemcget(widget._game_over_text, "state") == "hidden"
     widget.top.destroy()
 
 
@@ -46,7 +83,6 @@ def test_right_click_invokes_callback(root):
     clicks = []
     widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: clicks.append(1))
 
-    # Ensure Toplevel is ready for event processing before generating synthetic events
     widget.top.update()
     widget.canvas.event_generate("<Button-3>")
     root.update()

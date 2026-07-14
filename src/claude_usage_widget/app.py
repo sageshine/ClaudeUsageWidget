@@ -203,7 +203,7 @@ class App:
         self._refresh_and_reschedule_cancel_old()
 
     def _apply_state(self, state):
-        self.widget.apply_state(state)
+        self.widget.apply_state(state, self.config["thresholds"])
         now_text = f"마지막 업데이트: {datetime.now().strftime('%H:%M')}"
         self.detail_panel.render(state.detail_rows, now_text)
         self.tray_icon.icon = make_icon_image(state.mood)
@@ -226,7 +226,7 @@ class App:
 
     def _on_widget_right_click(self):
         x = self.widget.top.winfo_x()
-        y = self.widget.top.winfo_y() + CharacterWidget.SIZE
+        y = self.widget.top.winfo_y() + CharacterWidget.HEIGHT
         self.detail_panel.show_at(x, y)
 
     def _handle_first_run(self):

@@ -1,6 +1,6 @@
 from unittest.mock import patch, MagicMock
 
-from claude_usage_widget.api_client import fetch_usage, parse_usage_response, AuthError, TransientError
+from claude_usage_widget.api_client import fetch_usage, parse_usage_response, AuthError, TransientError, fetch_usage_with_retry
 
 SAMPLE_RESPONSE = {
     "five_hour": {"utilization": 9, "resets_at": "2026-07-14T09:00:00.491813+00:00"},
@@ -94,3 +94,52 @@ def test_fetch_usage_raises_transient_error_on_malformed_json(mock_get):
         assert False, "expected TransientError"
     except TransientError as exc:
         assert "JSON" in str(exc)
+
+
+def test_fetch_usage_with_retry_raises_auth_error_immediately_without_retry():
+    calls = []
+
+    def fake_fetch(session_key, org_id):
+        calls.append(1)
+        raise AuthError("expired")
+
+    try:
+        fetch_usage_with_retry(
+            "key", "org-123", fetch_fn=fake_fetch, sleep_fn=lambda s: None
+        )
+        assert False, "expected AuthError"
+    except AuthError:
+        pass
+    assert len(calls) == 1
+
+
+def test_fetch_usage_with_retry_retries_transient_errors_then_succeeds():
+    calls = []
+    sleeps = []
+
+    def fake_fetch(session_key, org_id):
+        calls.append(1)
+        if len(calls) < 3:
+            raise TransientError("network blip")
+        return "snapshot-ok"
+
+    result = fetch_usage_with_retry(
+        "key", "org-123", fetch_fn=fake_fetch, sleep_fn=lambda s: sleeps.append(s), base_delay=1.0
+    )
+
+    assert result == "snapshot-ok"
+    assert len(calls) == 3
+    assert sleeps == [1.0, 2.0]
+
+
+def test_fetch_usage_with_retry_raises_after_max_attempts():
+    def fake_fetch(session_key, org_id):
+        raise TransientError("still down")
+
+    try:
+        fetch_usage_with_retry(
+            "key", "org-123", fetch_fn=fake_fetch, sleep_fn=lambda s: None, max_attempts=3, base_delay=1.0
+        )
+        assert False, "expected TransientError"
+    except TransientError:
+        pass

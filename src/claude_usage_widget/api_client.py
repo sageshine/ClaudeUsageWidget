@@ -81,3 +81,28 @@ def _minor_to_dollars(amount) -> float:
     if not amount:
         return 0.0
     return amount["amount_minor"] / (10 ** amount.get("exponent", 2))
+
+
+def fetch_usage_with_retry(
+    session_key: str,
+    org_id: str,
+    max_attempts: int = 5,
+    base_delay: float = 2.0,
+    max_delay: float = 900.0,
+    sleep_fn=time.sleep,
+    fetch_fn=fetch_usage,
+) -> UsageSnapshot:
+    delay = base_delay
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return fetch_fn(session_key, org_id)
+        except AuthError:
+            raise
+        except TransientError as exc:
+            last_error = exc
+            if attempt == max_attempts:
+                break
+            sleep_fn(min(delay, max_delay))
+            delay *= 2
+    raise last_error

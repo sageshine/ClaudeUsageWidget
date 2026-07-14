@@ -1,5 +1,25 @@
 from claude_usage_widget import app as app_module
 from claude_usage_widget import config as config_module
+from claude_usage_widget.widget_state import Mood, WidgetState
+
+
+class _FakeWidget:
+    def apply_state(self, state):
+        pass
+
+
+class _FakeDetailPanel:
+    def render(self, rows, updated_text):
+        pass
+
+
+class _FakeTrayIcon:
+    def __init__(self):
+        self.icon = None
+        self.notify_calls = []
+
+    def notify(self, message):
+        self.notify_calls.append(message)
 
 
 def test_on_settings_saved_persists_config_and_credentials(tmp_path, monkeypatch):
@@ -39,7 +59,10 @@ def test_on_settings_saved_disables_autostart_when_unchecked(tmp_path, monkeypat
     monkeypatch.setenv("APPDATA", str(tmp_path))
 
     saved = {}
-    monkeypatch.setattr(app_module.credential_store, "save_session_key", lambda v: None)
+    save_session_key_calls = []
+    monkeypatch.setattr(
+        app_module.credential_store, "save_session_key", lambda v: save_session_key_calls.append(v)
+    )
     monkeypatch.setattr(app_module, "enable_autostart", lambda: saved.setdefault("autostart", "enabled"))
     monkeypatch.setattr(app_module, "disable_autostart", lambda: saved.setdefault("autostart", "disabled"))
 
@@ -59,6 +82,8 @@ def test_on_settings_saved_disables_autostart_when_unchecked(tmp_path, monkeypat
     })
 
     assert saved["autostart"] == "disabled"
+    # session_key was None, so save_session_key must not have been called at all.
+    assert save_session_key_calls == []
 
 
 def test_fetch_result_returns_none_when_credentials_missing(tmp_path, monkeypatch):
@@ -85,3 +110,40 @@ def test_fetch_result_returns_exception_when_fetch_fails(tmp_path, monkeypatch):
 
     result = instance._fetch_result()
     assert isinstance(result, app_module.AuthError)
+
+
+def test_apply_state_notifies_once_on_auth_error_then_resets():
+    instance = app_module.App.__new__(app_module.App)
+    instance.widget = _FakeWidget()
+    instance.detail_panel = _FakeDetailPanel()
+    instance.tray_icon = _FakeTrayIcon()
+    instance._notified_auth_error = False
+
+    auth_error_state = WidgetState(
+        mood=Mood.AUTH_ERROR,
+        headline_percent=0,
+        tooltip="재로그인이 필요해요",
+        detail_rows=[("sessionKey가 만료되었거나 유효하지 않아요.", None)],
+    )
+
+    # Applying the same AUTH_ERROR state twice in a row should only notify once.
+    instance._apply_state(auth_error_state)
+    instance._apply_state(auth_error_state)
+    assert len(instance.tray_icon.notify_calls) == 1
+    assert instance._notified_auth_error is True
+
+    # A subsequent non-AUTH_ERROR state resets the dedup flag.
+    calm_state = WidgetState(
+        mood=Mood.CALM,
+        headline_percent=10,
+        tooltip="세션 10%",
+        detail_rows=[("현재 세션", 10)],
+    )
+    instance._apply_state(calm_state)
+    assert instance._notified_auth_error is False
+    assert len(instance.tray_icon.notify_calls) == 1
+
+    # ...so a later AUTH_ERROR state notifies again.
+    instance._apply_state(auth_error_state)
+    assert len(instance.tray_icon.notify_calls) == 2
+    assert instance._notified_auth_error is True

@@ -150,6 +150,20 @@ def test_choose_shape_and_placement_returns_none_when_board_fully_blocked():
     assert choose_shape_and_placement(board, rng) is None
 
 
+def test_choose_shape_and_placement_prefers_globally_deepest_shape_not_just_first_that_fits():
+    # 빈 보드에서는 7개 조각 모두 놓을 수 있지만, I는 세로로 1칸짜리라 2칸짜리
+    # 조각들(O/T/S/Z/J/L)보다 정확히 한 칸 더 깊이(바닥) 착지할 수 있다.
+    # "무작위 순서로 첫 번째로 맞는 조각을 쓰는" 옛 방식이면 7개 중 대략 고르게
+    # 뽑히지만(대략 1/7 확률로 I), "전체 중 가장 깊이 착지하는 조각을 고르는" 새
+    # 방식이면 셔플 순서와 무관하게 항상 I만 뽑혀야 한다.
+    board = empty_board()
+    for seed in range(30):
+        rng = random.Random(seed)
+        shape_id, col, landing_row = choose_shape_and_placement(board, rng)
+        assert shape_id == "I"
+        assert landing_row == ROWS - 1
+
+
 def test_find_landing_row_t_piece_lands_on_staggered_stack_with_left_and_right_columns_filled():
     # T piece cells: ((0,0),(0,1),(0,2),(1,1)) at start_col=0
     # col0 filled rows 8-9 (first_filled=8) -> offset_limit = 8-1-0 = 7

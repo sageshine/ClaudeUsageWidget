@@ -83,11 +83,16 @@ def choose_shape(rng: random.Random) -> str:
 
 
 def choose_shape_and_placement(board, rng: random.Random):
-    shape_ids = list(SHAPES.keys())
-    rng.shuffle(shape_ids)
-    for shape_id in shape_ids:
+    candidates = []
+    for shape_id in SHAPES:
         placement = choose_placement(board, shape_id, rng)
         if placement is not None:
             col, landing_row = placement
-            return shape_id, col, landing_row
-    return None
+            candidates.append((shape_id, col, landing_row))
+
+    if not candidates:
+        return None
+
+    deepest = max(landing_row for _, _, landing_row in candidates)
+    best = [c for c in candidates if c[2] == deepest]
+    return rng.choice(best)

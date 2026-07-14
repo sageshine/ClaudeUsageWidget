@@ -8,6 +8,7 @@ from claude_usage_widget.tetris_pieces import (
     choose_placement,
     choose_shape,
     choose_shape_and_placement,
+    clear_full_rows,
     empty_board,
     filled_cell_count,
     find_landing_row,
@@ -207,3 +208,36 @@ def test_choose_placement_with_t_piece_avoids_shallow_middle_column_on_staggered
         col, landing_row = choose_placement(board, "T", rng)
         assert col in (0, 2)
         assert landing_row == 5
+
+
+def test_clear_full_rows_removes_completed_row_and_shifts_down():
+    grid = [[None] * COLS for _ in range(ROWS)]
+    grid[ROWS - 1] = ["I", "I", "O", "O", "T"]  # 맨 아래 줄이 5칸 모두 참
+    grid[ROWS - 2][0] = "L"  # 그 위 줄엔 한 칸만 참
+    board = tuple(tuple(row) for row in grid)
+
+    new_board, cleared_count = clear_full_rows(board)
+
+    assert cleared_count == 1
+    # 지워진 줄 위에 있던 "L" 조각이 한 칸 아래(맨 아래 줄)로 내려와야 함
+    assert new_board[ROWS - 1][0] == "L"
+    assert all(cell is None for cell in new_board[ROWS - 1][1:])
+    # 맨 위에는 새 빈 행이 생겨야 함
+    assert all(cell is None for cell in new_board[0])
+
+
+def test_clear_full_rows_returns_original_board_unchanged_when_nothing_to_clear():
+    board = place_piece(empty_board(), "O", 0, ROWS - 2)
+    new_board, cleared_count = clear_full_rows(board)
+    assert cleared_count == 0
+    assert new_board == board
+
+
+def test_clear_full_rows_does_not_mutate_input_board():
+    grid = [[None] * COLS for _ in range(ROWS)]
+    grid[ROWS - 1] = ["I", "I", "O", "O", "T"]
+    board = tuple(tuple(row) for row in grid)
+
+    clear_full_rows(board)
+
+    assert board[ROWS - 1] == ("I", "I", "O", "O", "T")  # 원본 그대로

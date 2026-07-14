@@ -174,24 +174,23 @@ class CharacterWidget:
     def _schedule_next_drop(self, delay_ms):
         self._drop_after_id = self.canvas.after(delay_ms, self._spawn_piece)
 
-    def _choose_decorative_placement(self):
-        """장식용(쌓이지 않는) 조각은 착지 정확도보다 모양의 다양성이 중요하다.
-        choose_shape_and_placement는 항상 가장 깊이 착지하는 조각을 고르는데,
-        빈 보드 근처에서는 이게 매번 I(막대) 하나로 수렴해버려 알록달록한 느낌이
-        안 난다. 그래서 장식용은 완전히 무작위로 모양을 고른 뒤, 그 모양이
-        어디든 놓일 수 있으면 그대로 쓴다."""
+    def _choose_piece_placement(self):
+        """알록달록하고 비정형적인 느낌을 위해 항상 완전히 무작위로 모양을 먼저
+        고르고, 그 모양이 놓일 수 있는 자리를 찾는다 (쌓이는 조각·장식용 조각
+        모두 동일하게). choose_shape_and_placement(가장 깊이 착지하는 조각만
+        고르는 방식)는 목표%까지 더 정확하게 채우지만 매번 비슷한 모양(특히 I)만
+        골라서 단조로워 보인다 -- 다양성을 우선하기로 하고, 하필 고른 모양이
+        지금 보드엔 하나도 안 들어갈 때만 정확도 우선 방식으로 폴백한다."""
         shape_id = choose_shape(self._rng)
         placement = choose_placement(self._board, shape_id, self._rng)
         if placement is not None:
             col, landing_row = placement
             return shape_id, col, landing_row
-        # 하필 고른 모양이 지금 보드엔 하나도 안 들어간다 -- 정확도 우선 방식으로
-        # 폴백해서 그래도 뭔가는 계속 떨어지도록 한다.
         return choose_shape_and_placement(self._board, self._rng)
 
     def _spawn_piece(self):
         decorative = filled_cell_count(self._board) >= self._target
-        result = self._choose_decorative_placement() if decorative else choose_shape_and_placement(self._board, self._rng)
+        result = self._choose_piece_placement()
         if result is None:
             # 지금 당장 놓을 자리가 없다 -- 이번 낙하는 건너뛰고 다음 시도를 예약한다.
             self._schedule_next_drop(_SPAWN_GAP_MS)

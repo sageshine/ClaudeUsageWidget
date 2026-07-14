@@ -84,3 +84,34 @@ def test_resolve_state_respects_show_credit_false_for_snapshot_result():
     state = resolve_state(_snapshot(9, 17, credit_enabled=True), THRESHOLDS, False)
     labels = [row[0] for row in state.detail_rows]
     assert not any("크레딧" in label for label in labels)
+
+
+def test_compute_widget_state_tooltip_includes_session_reset_countdown_with_hours():
+    now = datetime(2026, 7, 14, 10, 0, 0, tzinfo=timezone.utc)
+    snapshot = _snapshot(9, 17)
+    snapshot.session.resets_at = datetime(2026, 7, 14, 14, 37, 0, tzinfo=timezone.utc)
+
+    state = compute_widget_state(snapshot, THRESHOLDS, True, now=now)
+
+    assert "4시간 37분 후 재설정" in state.tooltip
+
+
+def test_compute_widget_state_tooltip_shows_minutes_only_under_one_hour():
+    now = datetime(2026, 7, 14, 10, 0, 0, tzinfo=timezone.utc)
+    snapshot = _snapshot(9, 17)
+    snapshot.session.resets_at = datetime(2026, 7, 14, 10, 25, 0, tzinfo=timezone.utc)
+
+    state = compute_widget_state(snapshot, THRESHOLDS, True, now=now)
+
+    assert "25분 후 재설정" in state.tooltip
+    assert "시간" not in state.tooltip
+
+
+def test_compute_widget_state_tooltip_shows_waiting_message_when_reset_time_already_passed():
+    now = datetime(2026, 7, 14, 10, 0, 0, tzinfo=timezone.utc)
+    snapshot = _snapshot(9, 17)
+    snapshot.session.resets_at = datetime(2026, 7, 14, 9, 0, 0, tzinfo=timezone.utc)
+
+    state = compute_widget_state(snapshot, THRESHOLDS, True, now=now)
+
+    assert "재설정 대기 중" in state.tooltip

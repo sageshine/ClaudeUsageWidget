@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 
 from .api_client import AuthError
@@ -38,7 +39,23 @@ class WidgetState:
     detail_rows: list
 
 
-def compute_widget_state(snapshot: UsageSnapshot, thresholds: dict, show_credit: bool) -> WidgetState:
+def _format_reset_countdown(resets_at: datetime, now: datetime) -> str:
+    total_seconds = int((resets_at - now).total_seconds())
+    if total_seconds <= 0:
+        return "재설정 대기 중"
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes = remainder // 60
+    if hours > 0:
+        return f"{hours}시간 {minutes}분 후 재설정"
+    return f"{minutes}분 후 재설정"
+
+
+def compute_widget_state(
+    snapshot: UsageSnapshot, thresholds: dict, show_credit: bool, now: datetime | None = None
+) -> WidgetState:
+    if now is None:
+        now = datetime.now(timezone.utc)
+
     headline = max(snapshot.session.percent, snapshot.weekly_all.percent)
     if headline >= thresholds["danger"]:
         mood = Mood.DANGER
@@ -47,7 +64,8 @@ def compute_widget_state(snapshot: UsageSnapshot, thresholds: dict, show_credit:
     else:
         mood = Mood.CALM
 
-    tooltip = f"세션 {snapshot.session.percent}% · 주간 {snapshot.weekly_all.percent}%"
+    session_countdown = _format_reset_countdown(snapshot.session.resets_at, now)
+    tooltip = f"세션 {snapshot.session.percent}% ({session_countdown}) · 주간 {snapshot.weekly_all.percent}%"
 
     rows = [
         ("현재 세션", snapshot.session.percent),
@@ -61,7 +79,7 @@ def compute_widget_state(snapshot: UsageSnapshot, thresholds: dict, show_credit:
     return WidgetState(mood=mood, headline_percent=headline, tooltip=tooltip, detail_rows=rows)
 
 
-def resolve_state(result, thresholds: dict, show_credit: bool) -> WidgetState:
+def resolve_state(result, thresholds: dict, show_credit: bool, now: datetime | None = None) -> WidgetState:
     if result is None:
         return WidgetState(
             mood=Mood.SETUP_NEEDED,
@@ -86,4 +104,4 @@ def resolve_state(result, thresholds: dict, show_credit: bool) -> WidgetState:
             tooltip="일시적으로 갱신에 실패했어요 (마지막 값 유지)",
             detail_rows=[("네트워크 오류로 최신 값을 가져오지 못했어요.", None)],
         )
-    return compute_widget_state(result, thresholds, show_credit)
+    return compute_widget_state(result, thresholds, show_credit, now)

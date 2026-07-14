@@ -6,21 +6,21 @@ from .widget_state import Mood, MOOD_COLORS, WidgetState
 _TRANSPARENT_KEY = "magenta"
 _GLASS_FILL = "#BFE0F7"
 _GLASS_OUTLINE = "#4A7FB0"
-_GLASS_STROKE_WIDTH = 3
+_GLASS_STROKE_WIDTH = 2
 _HIGHLIGHT_COLOR = "#FFFFFF"
 _STICKER_WHITE = "#FFFFFF"
-_STICKER_OFFSET = 3
-_MARGIN = 6
-_CAP_RY = 10
-_BULB_HALF_WIDTH = 34
-_NECK_HALF_WIDTH = 7
+_STICKER_OFFSET = 2
+_MARGIN = 3
+_CAP_RY = 5
+_BULB_HALF_WIDTH = 17
+_NECK_HALF_WIDTH = 4
 _CURVE_STEPS = 5
 _TICK_MS = 120
 _DRAIN_STEP = 0.01
 _FLIP_FRAME_MS = 90
 _FLIP_FRAMES = 4
 _TRICKLE_STEPS = 10
-_TRICKLE_RADIUS = 1.5
+_TRICKLE_RADIUS = 1
 
 
 def _lerp(a, b, t):
@@ -35,7 +35,7 @@ class HourglassWidget:
     완전히 비고, 리셋되면 좌우로 접혔다 펴지며 다시 채워진다."""
 
     WIDTH = 2 * _BULB_HALF_WIDTH + 2 * _MARGIN
-    HEIGHT = 116
+    HEIGHT = 58
 
     def __init__(self, root, initial_pos, on_move, on_right_click):
         self.top = tk.Toplevel(root)
@@ -90,7 +90,7 @@ class HourglassWidget:
             self.HEIGHT / 2,
             text="GAME\nOVER",
             fill="white",
-            font=("Segoe UI", 9, "bold"),
+            font=("Segoe UI", 6, "bold"),
             justify="center",
             state="hidden",
         )
@@ -202,9 +202,9 @@ class HourglassWidget:
     def _redraw_shine(self, scale_x):
         cx_pos = self._center_x - _BULB_HALF_WIDTH * 0.4
         top_cy = _lerp(self._top_y, self._neck_y, 0.35)
-        self._set_offset_oval(self._shine_top, cx_pos, top_cy, 6, 13, scale_x)
+        self._set_offset_oval(self._shine_top, cx_pos, top_cy, 3, 6, scale_x)
         bottom_cy = _lerp(self._neck_y, self._bottom_y, 0.65)
-        self._set_offset_oval(self._shine_bottom, cx_pos, bottom_cy, 6, 13, scale_x)
+        self._set_offset_oval(self._shine_bottom, cx_pos, bottom_cy, 3, 6, scale_x)
 
     def _redraw_trickle(self, scale_x):
         active = self._displayed_fraction < 1.0 and not self._flipping
@@ -213,7 +213,7 @@ class HourglassWidget:
             return
         self._trickle_phase = (self._trickle_phase + 1) % _TRICKLE_STEPS
         t = self._trickle_phase / _TRICKLE_STEPS
-        y = _lerp(self._neck_y - 6, self._neck_y + 6, t)
+        y = _lerp(self._neck_y - 3, self._neck_y + 3, t)
         cx = self._center_x
         x1 = self._scaled(cx - _TRICKLE_RADIUS, scale_x)
         x2 = self._scaled(cx + _TRICKLE_RADIUS, scale_x)

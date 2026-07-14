@@ -1,18 +1,30 @@
+import random
 import tkinter as tk
 
-from .tetris_logic import TOTAL_ROWS, filled_row_count, is_game_over, row_color
+from .tetris_logic import is_game_over
+from .tetris_pieces import (
+    COLS,
+    ROWS,
+    SHAPES,
+    SHAPE_COLORS,
+    choose_placement,
+    choose_shape,
+    empty_board,
+    filled_cell_count,
+    place_piece,
+)
 from .widget_state import WidgetState
 
 _TRANSPARENT_KEY = "magenta"
-_EMPTY_ROW_COLOR = "#D1D5DB"
+_EMPTY_CELL_COLOR = "#D1D5DB"
 _BORDER_COLOR = "#374151"
-_ANIMATION_DELAY_MS = 400
+_CELL_SIZE = 18
+_ANIMATION_DELAY_MS = 300
 
 
 class CharacterWidget:
-    WIDTH = 40
-    HEIGHT = 100
-    _ROW_HEIGHT = HEIGHT / TOTAL_ROWS
+    WIDTH = COLS * _CELL_SIZE
+    HEIGHT = ROWS * _CELL_SIZE
 
     def __init__(self, root, initial_pos, on_move, on_right_click):
         self.top = tk.Toplevel(root)
@@ -32,14 +44,22 @@ class CharacterWidget:
         )
         self.canvas.pack()
 
-        self._row_rects = []
-        for row_index in range(1, TOTAL_ROWS + 1):
-            y1 = self.HEIGHT - row_index * self._ROW_HEIGHT
-            y2 = self.HEIGHT - (row_index - 1) * self._ROW_HEIGHT
-            rect = self.canvas.create_rectangle(
-                2, y1 + 1, self.WIDTH - 2, y2 - 1, fill=_EMPTY_ROW_COLOR, outline=_BORDER_COLOR
-            )
-            self._row_rects.append(rect)
+        self._cell_rects = []
+        for row in range(ROWS):
+            row_rects = []
+            for col in range(COLS):
+                x1 = col * _CELL_SIZE
+                y1 = row * _CELL_SIZE
+                rect = self.canvas.create_rectangle(
+                    x1 + 1,
+                    y1 + 1,
+                    x1 + _CELL_SIZE - 1,
+                    y1 + _CELL_SIZE - 1,
+                    fill=_EMPTY_CELL_COLOR,
+                    outline=_BORDER_COLOR,
+                )
+                row_rects.append(rect)
+            self._cell_rects.append(row_rects)
 
         self._game_over_bg = self.canvas.create_rectangle(
             0, 0, self.WIDTH, self.HEIGHT, fill="#000000", stipple="gray50", outline="", state="hidden"
@@ -60,8 +80,12 @@ class CharacterWidget:
         self._tooltip_win = None
         self._tooltip_text = ""
 
-        self._filled_rows = None  # None이면 아직 첫 apply_state가 호출되지 않은 상태
+        self._board = empty_board()
+        self._current_piece = None  # {"shape_id", "col", "row_offset", "landing_row"} 또는 None
+        self._pending_target = 0
         self._animation_after_id = None
+        self._initialized = False
+        self._rng = random.Random()
 
         self.canvas.bind("<ButtonPress-1>", self._start_drag)
         self.canvas.bind("<B1-Motion>", self._do_drag)
@@ -72,40 +96,79 @@ class CharacterWidget:
 
     def apply_state(self, state: WidgetState, thresholds: dict) -> None:
         self._tooltip_text = state.tooltip
-        target = filled_row_count(state.headline_percent)
+        clamped = max(0, min(100, state.headline_percent))
+        target = round(clamped / 100 * (ROWS * COLS))
 
         if self._animation_after_id is not None:
             self.canvas.after_cancel(self._animation_after_id)
             self._animation_after_id = None
 
-        if self._filled_rows is None or target < self._filled_rows:
-            self._filled_rows = target
-            self._redraw(thresholds)
-        elif target > self._filled_rows:
-            self._animate_fill_step(target, thresholds)
-        else:
-            self._redraw(thresholds)
+        if self._current_piece is not None:
+            piece = self._current_piece
+            self._board = place_piece(self._board, piece["shape_id"], piece["col"], piece["landing_row"])
+            self._current_piece = None
 
+        current_filled = filled_cell_count(self._board)
+
+        if not self._initialized or target < current_filled:
+            self._board = empty_board()
+            self._fill_instantly(target)
+            self._initialized = True
+        elif target > current_filled:
+            self._pending_target = target
+            self._spawn_next_piece()
+
+        self._redraw()
         self._set_game_over_visible(is_game_over(state.headline_percent))
 
-    def _animate_fill_step(self, target, thresholds):
-        if self._filled_rows >= target:
-            return
-        self._filled_rows += 1
-        self._redraw(thresholds)
-        if self._filled_rows < target:
-            self._animation_after_id = self.canvas.after(
-                _ANIMATION_DELAY_MS, self._animate_fill_step, target, thresholds
-            )
-        else:
-            self._animation_after_id = None
+    def _fill_instantly(self, target):
+        while filled_cell_count(self._board) < target:
+            shape_id = choose_shape(self._rng)
+            placement = choose_placement(self._board, shape_id, self._rng)
+            if placement is None:
+                break
+            col, landing_row = placement
+            self._board = place_piece(self._board, shape_id, col, landing_row)
 
-    def _redraw(self, thresholds):
-        for row_index, rect in enumerate(self._row_rects, start=1):
-            if row_index <= self._filled_rows:
-                self.canvas.itemconfig(rect, fill=row_color(row_index, thresholds))
-            else:
-                self.canvas.itemconfig(rect, fill=_EMPTY_ROW_COLOR)
+    def _spawn_next_piece(self):
+        if filled_cell_count(self._board) >= self._pending_target:
+            return
+        shape_id = choose_shape(self._rng)
+        placement = choose_placement(self._board, shape_id, self._rng)
+        if placement is None:
+            return
+        col, landing_row = placement
+        self._current_piece = {"shape_id": shape_id, "col": col, "row_offset": 0, "landing_row": landing_row}
+        self._redraw()
+        self._animation_after_id = self.canvas.after(_ANIMATION_DELAY_MS, self._animate_piece_fall_step)
+
+    def _animate_piece_fall_step(self):
+        piece = self._current_piece
+        if piece["row_offset"] >= piece["landing_row"]:
+            self._board = place_piece(self._board, piece["shape_id"], piece["col"], piece["landing_row"])
+            self._current_piece = None
+            self._redraw()
+            self._spawn_next_piece()
+            return
+        piece["row_offset"] += 1
+        self._redraw()
+        self._animation_after_id = self.canvas.after(_ANIMATION_DELAY_MS, self._animate_piece_fall_step)
+
+    def _redraw(self):
+        for row in range(ROWS):
+            for col in range(COLS):
+                self.canvas.itemconfig(self._cell_rects[row][col], fill=self._cell_color(row, col))
+
+    def _cell_color(self, row, col):
+        if self._current_piece is not None:
+            piece = self._current_piece
+            for dr, dc in SHAPES[piece["shape_id"]]:
+                if piece["row_offset"] + dr == row and piece["col"] + dc == col:
+                    return SHAPE_COLORS[piece["shape_id"]]
+        cell = self._board[row][col]
+        if cell is not None:
+            return SHAPE_COLORS[cell]
+        return _EMPTY_CELL_COLOR
 
     def _set_game_over_visible(self, visible):
         state = "normal" if visible else "hidden"

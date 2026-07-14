@@ -1,0 +1,63 @@
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+
+class SettingsDialog:
+    def __init__(self, root, config: dict, on_save):
+        self.top = tk.Toplevel(root)
+        self.top.title("설정")
+        self.top.resizable(False, False)
+        self._on_save = on_save
+
+        self.session_key_var = tk.StringVar()
+        self.org_id_var = tk.StringVar(value=config.get("org_id") or "")
+        self.interval_var = tk.IntVar(value=config["refresh_interval_seconds"])
+        self.warning_var = tk.IntVar(value=config["thresholds"]["warning"])
+        self.danger_var = tk.IntVar(value=config["thresholds"]["danger"])
+        self.credit_var = tk.BooleanVar(value=config["show_credit"])
+        self.autostart_var = tk.BooleanVar(value=config["autostart_enabled"])
+
+        self._build_form()
+        self.top.withdraw()
+
+    def _build_form(self):
+        pad = {"padx": 10, "pady": 4}
+        ttk.Label(self.top, text="sessionKey 쿠키 값").grid(row=0, column=0, sticky="w", **pad)
+        ttk.Entry(self.top, textvariable=self.session_key_var, width=40, show="*").grid(row=0, column=1, **pad)
+
+        ttk.Label(self.top, text="Organization ID").grid(row=1, column=0, sticky="w", **pad)
+        ttk.Entry(self.top, textvariable=self.org_id_var, width=40).grid(row=1, column=1, **pad)
+
+        ttk.Label(self.top, text="새로고침 주기(초, 최소 60)").grid(row=2, column=0, sticky="w", **pad)
+        ttk.Spinbox(self.top, from_=60, to=3600, textvariable=self.interval_var, width=10).grid(row=2, column=1, sticky="w", **pad)
+
+        ttk.Label(self.top, text="주의 임계값(%)").grid(row=3, column=0, sticky="w", **pad)
+        ttk.Spinbox(self.top, from_=1, to=99, textvariable=self.warning_var, width=10).grid(row=3, column=1, sticky="w", **pad)
+
+        ttk.Label(self.top, text="위험 임계값(%)").grid(row=4, column=0, sticky="w", **pad)
+        ttk.Spinbox(self.top, from_=1, to=100, textvariable=self.danger_var, width=10).grid(row=4, column=1, sticky="w", **pad)
+
+        ttk.Checkbutton(self.top, text="사용 크레딧 표시", variable=self.credit_var).grid(row=5, column=0, columnspan=2, sticky="w", **pad)
+        ttk.Checkbutton(self.top, text="PC 시작 시 자동 실행", variable=self.autostart_var).grid(row=6, column=0, columnspan=2, sticky="w", **pad)
+
+        ttk.Button(self.top, text="저장", command=self._save).grid(row=7, column=0, columnspan=2, pady=10)
+
+    def show(self) -> None:
+        self.top.deiconify()
+        self.top.lift()
+
+    def _save(self):
+        if self.warning_var.get() >= self.danger_var.get():
+            messagebox.showerror("설정 오류", "주의 임계값은 위험 임계값보다 작아야 해요.")
+            return
+
+        result = {
+            "session_key": self.session_key_var.get().strip() or None,
+            "org_id": self.org_id_var.get().strip() or None,
+            "refresh_interval_seconds": max(60, self.interval_var.get()),
+            "thresholds": {"warning": self.warning_var.get(), "danger": self.danger_var.get()},
+            "show_credit": self.credit_var.get(),
+            "autostart_enabled": self.autostart_var.get(),
+        }
+        self._on_save(result)
+        self.top.withdraw()

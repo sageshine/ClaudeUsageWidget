@@ -28,13 +28,15 @@ def _target_cells(percent):
 
 
 def _run_piece_to_landing(widget):
-    """현재 낙하 중인 조각이 착지할 때까지 _animate_drop_step을 직접 호출해서
-    (칸당 150ms) 애니메이션을 실시간으로 기다리지 않고 건너뛴다. 착지 순간의
-    분기(합치기 또는 decorative 잔류)까지 정확히 한 번만 트리거한다."""
+    """현재 낙하 중인 조각이 착지 + 바운스 애니메이션까지 모두 마칠 때까지
+    내부 스텝 메서드를 직접 호출해서 실시간 대기(칸당 150ms, 바운스 프레임당
+    70ms) 없이 건너뛴다."""
     piece = widget._current_piece
     while piece["row_offset"] < piece["landing_row"]:
         widget._animate_drop_step()
-    widget._animate_drop_step()
+    widget._animate_drop_step()  # landing_row 도달 -> _play_landing_bounce (눌린 프레임)
+    widget._play_landing_stretch(piece)  # 튕겨나온 프레임
+    widget._finish_landing(piece)  # 합치기 또는 decorative 잔류 예약
 
 
 def test_widget_starts_with_empty_board_and_zero_target(root):

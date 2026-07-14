@@ -24,6 +24,9 @@ _BEVEL = 2
 _FALL_STEP_MS = 150
 _SPAWN_GAP_MS = 400
 _DECORATIVE_LINGER_MS = 500
+_BOUNCE_FRAME_MS = 70
+_SQUASH_AMOUNT = 0.35
+_STRETCH_AMOUNT = -0.15
 
 
 def _hex_to_rgb(hex_color):
@@ -207,27 +210,65 @@ class CharacterWidget:
     def _animate_drop_step(self):
         piece = self._current_piece
         if piece["row_offset"] >= piece["landing_row"]:
-            if piece["decorative"]:
-                self._redraw()
-                self._drop_after_id = self.canvas.after(_DECORATIVE_LINGER_MS, self._dissolve_decorative_piece)
-            else:
-                self._board = place_piece(self._board, piece["shape_id"], piece["col"], piece["landing_row"])
-                self._current_piece = None
-                self._redraw()
-                self._schedule_next_drop(_SPAWN_GAP_MS)
+            self._play_landing_bounce(piece)
             return
         piece["row_offset"] += 1
         self._redraw()
         self._drop_after_id = self.canvas.after(_FALL_STEP_MS, self._animate_drop_step)
+
+    def _piece_cells(self, piece):
+        return [(piece["row_offset"] + dr, piece["col"] + dc) for dr, dc in SHAPES[piece["shape_id"]]]
+
+    def _play_landing_bounce(self, piece):
+        """착지 순간 살짝 눌렸다가('철컵') 튕겨 올라오는 젤리 같은 바운스를
+        2프레임으로 흉내낸다 -- 실제 소프트바디 물리는 아니지만 착지감을 준다."""
+        self._redraw()
+        for row, col in self._piece_cells(piece):
+            self._set_cell_geometry(row, col, squash=_SQUASH_AMOUNT)
+        self._drop_after_id = self.canvas.after(_BOUNCE_FRAME_MS, lambda: self._play_landing_stretch(piece))
+
+    def _play_landing_stretch(self, piece):
+        self._redraw()
+        for row, col in self._piece_cells(piece):
+            self._set_cell_geometry(row, col, squash=_STRETCH_AMOUNT)
+        self._drop_after_id = self.canvas.after(_BOUNCE_FRAME_MS, lambda: self._finish_landing(piece))
+
+    def _finish_landing(self, piece):
+        if piece["decorative"]:
+            self._redraw()
+            self._drop_after_id = self.canvas.after(_DECORATIVE_LINGER_MS, self._dissolve_decorative_piece)
+        else:
+            self._board = place_piece(self._board, piece["shape_id"], piece["col"], piece["landing_row"])
+            self._current_piece = None
+            self._redraw()
+            self._schedule_next_drop(_SPAWN_GAP_MS)
 
     def _dissolve_decorative_piece(self):
         self._current_piece = None
         self._redraw()
         self._schedule_next_drop(_SPAWN_GAP_MS)
 
+    def _cell_rect(self, row, col):
+        x1 = _BORDER_THICKNESS + col * _CELL_SIZE
+        y1 = _BORDER_THICKNESS + row * _CELL_SIZE
+        return x1, y1, x1 + _CELL_SIZE, y1 + _CELL_SIZE
+
+    def _set_cell_geometry(self, row, col, squash=0.0):
+        """squash > 0: 눌린 모습(높이 감소, 폭 증가, 바닥에 고정).
+        squash < 0: 튕겨 늘어난 모습(높이 증가, 폭 감소). squash == 0: 기본 정사각형."""
+        x1, y1, x2, y2 = self._cell_rect(row, col)
+        dy = _CELL_SIZE * squash
+        dx = _CELL_SIZE * squash * 0.5
+        x1, y1, x2, y2 = x1 - dx, y1 + dy, x2 + dx, y2
+        items = self._cell_items[row][col]
+        self.canvas.coords(items["base"], x1, y1, x2, y2)
+        self.canvas.coords(items["highlight"], x1, y2, x1, y1, x2, y1)
+        self.canvas.coords(items["shadow"], x1, y2, x2, y2, x2, y1)
+
     def _redraw(self):
         for row in range(ROWS):
             for col in range(COLS):
+                self._set_cell_geometry(row, col)  # 매번 기본 모양으로 되돌린 뒤 다시 그림
                 items = self._cell_items[row][col]
                 color = self._cell_color(row, col)
                 if color is None:

@@ -659,124 +659,99 @@ Expected: `dist/ClaudeUsageWidget.exe`가 새 코드로 재생성됨. 빌드 전
 
 ---
 
-## Task 3: 줄 삭제(line-clearing) 추가 — 65~100% 구간 시각적 정체 문제 해결
+## Task 3 (v2): `choose_shape_and_placement`을 "전체 조각 중 가장 깊이 착지하는 것"으로 고침
 
-**배경**: 최종 브랜치 리뷰에서, 회전·줄삭제가 없는 5칸 보드는 구멍(hole)이 누적되어 실제 사용량이 65~100%인 대부분의 구간에서 보드가 항상 약 64%(대략 32/50칸) 근처에서 막혀버리는 문제가 발견됨. 사용자가 "줄 삭제 추가"를 해결 방향으로 선택함.
+> 이전 버전의 Task 3(줄 삭제 추가)은 실제로 구현·측정해본 결과 두 방식(매 착지마다 삭제 / 막혔을 때만 삭제) 모두 문제를 악화시키는 것으로 Monte Carlo로 확인되어 **폐기**했다 (`clear_full_rows` 커밋은 revert됨). 원인은 줄 삭제 자체가 아니라, Task 2의 `choose_shape_and_placement`가 "무작위 순서로 조각을 하나씩 시도하다가 어디든 놓을 수 있는 첫 조각을 그냥 쓰는" 방식이라 가끔 훨씬 안전한 자리가 있는데도 위험한 자리에 조각을 끼워 넣어 보드를 조기에 막아버리는 것이었다. 진단 실험(Monte Carlo)으로 "7개 조각 전체를 다 확인해서 가장 깊이 착지하는 조각을 고르는" 방식이 천장을 64%→80%로 올린다는 게 검증되었고, 사용자가 이 방향(80~100%는 여전히 비슷하게 보이는 한계를 감수)으로 진행하기로 확정했다.
 
-**핵심 요구사항**: 한 줄(행)이 5칸 모두 채워지면 그 줄을 지우고 위에 쌓여있던 블록들을 한 칸씩 아래로 내린다 (표준 테트리스 줄삭제). 이렇게 구멍 위에 갇혀있던 공간을 주기적으로 회수해서, 목표 칸 수(`target_filled_cells`)에 도달하지 못하고 영구히 막히는 상황을 없앤다.
-
-**중요 — 이 태스크는 실험적 검증이 핵심이다.** 단순히 "줄삭제를 넣었다"만으로는 충분하지 않다. 구현 후 반드시 이전 라운드(Task 2의 `choose_shape_and_placement` 수정)에서 썼던 것과 같은 방식의 Monte Carlo 시뮬레이션으로 **목표%(50/70/80/90/100%)별로 실제 도달하는 평균 칸 수/시각적 %를 측정**하고, 65~100% 구간에서 서로 확연히 구분되는지(예: 70%와 100%가 비슷한 높이로 보이지 않는지) 실제 숫자로 확인해야 한다.
+**핵심 변경**: `choose_shape_and_placement(board, rng)`가 무작위 순서로 조각을 하나씩 시도하다 **첫 번째로 맞는 조각**을 쓰는 대신, **7개 조각 전부에 대해 `choose_placement`(해당 조각의 가장 깊은 착지 위치)를 구한 뒤, 그 중 착지 행(`landing_row`)이 가장 큰(=가장 깊은) 조각들 중에서만 무작위로 고른다.**
 
 **Files:**
-- Modify: `src/claude_usage_widget/tetris_pieces.py` (줄삭제 함수 추가)
-- Test: `tests/test_tetris_pieces.py` (줄삭제 함수 테스트 추가)
-- Modify: `src/claude_usage_widget/widget.py` (조각 착지 후 줄삭제 적용)
-- Test: `tests/test_widget.py` (필요 시 보강)
+- Modify: `src/claude_usage_widget/tetris_pieces.py` (`choose_shape_and_placement` 함수 교체)
+- Modify: `tests/test_tetris_pieces.py` (새 동작을 증명하는 테스트 1개 추가; 기존 3개 테스트는 그대로 통과해야 함 — 아래 설명 참고)
 
 **Interfaces:**
-- Produces: `clear_full_rows(board) -> tuple[Board, int]` — 꽉 찬 행을 전부 제거하고 위 블록들을 내린 뒤, 맨 위에 빈 행을 그만큼 채워 넣은 새 보드와 지워진 행 수를 반환 (원본 보드는 변경하지 않음)
+- `choose_shape_and_placement(board, rng: random.Random) -> tuple[str, int, int] | None` — 시그니처는 동일, 내부 선택 전략만 바뀜. `widget.py`는 이 함수를 그대로 호출하고 있으므로 **수정 불필요**.
 
-- [ ] **Step 1: `clear_full_rows` 실패하는 테스트 작성**
+- [ ] **Step 1: 새 동작을 증명하는 실패하는 테스트 작성**
 
-`tests/test_tetris_pieces.py`에 추가:
+`tests/test_tetris_pieces.py`에 추가 (기존 `test_choose_shape_and_placement_*` 세 테스트는 건드리지 않는다 — 아래 이유 참고):
+
 ```python
-from claude_usage_widget.tetris_pieces import clear_full_rows
-
-
-def test_clear_full_rows_removes_completed_row_and_shifts_down():
-    grid = [[None] * COLS for _ in range(ROWS)]
-    grid[ROWS - 1] = ["I", "I", "O", "O", "T"]  # 맨 아래 줄이 5칸 모두 참
-    grid[ROWS - 2][0] = "L"  # 그 위 줄엔 한 칸만 참
-    board = tuple(tuple(row) for row in grid)
-
-    new_board, cleared_count = clear_full_rows(board)
-
-    assert cleared_count == 1
-    # 지워진 줄 위에 있던 "L" 조각이 한 칸 아래(맨 아래 줄)로 내려와야 함
-    assert new_board[ROWS - 1][0] == "L"
-    assert all(cell is None for cell in new_board[ROWS - 1][1:])
-    # 맨 위에는 새 빈 행이 생겨야 함
-    assert all(cell is None for cell in new_board[0])
-
-
-def test_clear_full_rows_returns_original_board_unchanged_when_nothing_to_clear():
-    board = place_piece(empty_board(), "O", 0, ROWS - 2)
-    new_board, cleared_count = clear_full_rows(board)
-    assert cleared_count == 0
-    assert new_board == board
-
-
-def test_clear_full_rows_does_not_mutate_input_board():
-    grid = [[None] * COLS for _ in range(ROWS)]
-    grid[ROWS - 1] = ["I", "I", "O", "O", "T"]
-    board = tuple(tuple(row) for row in grid)
-
-    clear_full_rows(board)
-
-    assert board[ROWS - 1] == ("I", "I", "O", "O", "T")  # 원본 그대로
+def test_choose_shape_and_placement_prefers_globally_deepest_shape_not_just_first_that_fits():
+    # 빈 보드에서는 7개 조각 모두 놓을 수 있지만, I는 세로로 1칸짜리라 2칸짜리
+    # 조각들(O/T/S/Z/J/L)보다 정확히 한 칸 더 깊이(바닥) 착지할 수 있다.
+    # "무작위 순서로 첫 번째로 맞는 조각을 쓰는" 옛 방식이면 7개 중 대략 고르게
+    # 뽑히지만(대략 1/7 확률로 I), "전체 중 가장 깊이 착지하는 조각을 고르는" 새
+    # 방식이면 셔플 순서와 무관하게 항상 I만 뽑혀야 한다.
+    board = empty_board()
+    for seed in range(30):
+        rng = random.Random(seed)
+        shape_id, col, landing_row = choose_shape_and_placement(board, rng)
+        assert shape_id == "I"
+        assert landing_row == ROWS - 1
 ```
+
+이유를 설명하면: 기존 3개 테스트(`test_choose_shape_and_placement_on_empty_board_returns_valid_tuple`, `test_choose_shape_and_placement_falls_back_to_narrower_shape_when_wider_ones_dont_fit`, `test_choose_shape_and_placement_returns_none_when_board_fully_blocked`)는 시그니처와 "유효한 결과/None" 여부만 검증하거나, 애초에 후보가 하나(`O`)뿐이거나 아예 없는(`None`) 상황이라 새 선택 전략으로 바꿔도 동일하게 통과한다 — 그래서 수정할 필요가 없다. 이번에 추가하는 테스트가 "여러 조각이 모두 놓을 수 있을 때 정말로 가장 깊은 것을 고르는지"를 처음으로 검증하는 테스트다.
 
 - [ ] **Step 2: 테스트 실패 확인**
 
-Run: `python -m pytest tests/test_tetris_pieces.py -v -k clear_full_rows`
-Expected: FAIL with `ImportError: cannot import name 'clear_full_rows'`
+Run: `python -m pytest tests/test_tetris_pieces.py -v -k prefers_globally_deepest`
+Expected: FAIL (현재 구현은 무작위 순서 중 첫 번째로 맞는 조각을 쓰므로, 시드에 따라 `shape_id`가 `"I"`가 아닌 경우가 섞여서 assert 실패)
 
-- [ ] **Step 3: `clear_full_rows` 구현**
+- [ ] **Step 3: `choose_shape_and_placement` 교체**
 
-`src/claude_usage_widget/tetris_pieces.py` 끝에 추가:
+`src/claude_usage_widget/tetris_pieces.py`의 기존 함수:
 ```python
-def clear_full_rows(board):
-    remaining_rows = [row for row in board if any(cell is None for cell in row)]
-    cleared_count = ROWS - len(remaining_rows)
-    if cleared_count == 0:
-        return board, 0
-    empty_rows = [tuple(None for _ in range(COLS)) for _ in range(cleared_count)]
-    return tuple(empty_rows + remaining_rows), cleared_count
+def choose_shape_and_placement(board, rng: random.Random):
+    shape_ids = list(SHAPES.keys())
+    rng.shuffle(shape_ids)
+    for shape_id in shape_ids:
+        placement = choose_placement(board, shape_id, rng)
+        if placement is not None:
+            col, landing_row = placement
+            return shape_id, col, landing_row
+    return None
+```
+를 아래로 교체:
+```python
+def choose_shape_and_placement(board, rng: random.Random):
+    candidates = []
+    for shape_id in SHAPES:
+        placement = choose_placement(board, shape_id, rng)
+        if placement is not None:
+            col, landing_row = placement
+            candidates.append((shape_id, col, landing_row))
+
+    if not candidates:
+        return None
+
+    deepest = max(landing_row for _, _, landing_row in candidates)
+    best = [c for c in candidates if c[2] == deepest]
+    return rng.choice(best)
 ```
 
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `python -m pytest tests/test_tetris_pieces.py -v`
-Expected: 전체 PASS
+Expected: 전체 PASS (기존 테스트 포함 새 테스트까지)
 
-- [ ] **Step 5: `widget.py`에 줄삭제 연결**
-
-조각이 착지할 때마다(=`place_piece` 호출 직후) `clear_full_rows`를 적용해서 `self._board`를 갱신한다. 착지 지점은 두 곳이다:
-1. `_fill_instantly`의 루프 안에서 `self._board = place_piece(...)` 직후
-2. `_animate_piece_fall_step`이 조각을 착지시키는 분기 (`self._board = place_piece(...)` 직후)
-3. (참고용) `apply_state`에서 낙하 중이던 조각을 스냅할 때도 동일하게 적용하는 것이 일관적이다 — 그 지점도 함께 처리한다.
-
-즉 코드 어디서든 `self._board = place_piece(self._board, ...)`가 나오는 자리를 `self._board, _ = clear_full_rows(place_piece(self._board, ...))` 형태로 바꾼다 (반환되는 `cleared_count`는 지금 당장은 쓸 곳이 없으면 버려도 된다).
-
-`from .tetris_pieces import (...)` 임포트 목록에 `clear_full_rows`를 추가한다.
-
-- [ ] **Step 6: 전체 테스트 스위트 통과 확인**
+- [ ] **Step 5: 전체 테스트 스위트 통과 확인**
 
 Run: `python -m pytest -v`
-Expected: 전체 PASS, 회귀 없음
+Expected: 전체 PASS, 회귀 없음. `widget.py`는 이번 태스크에서 전혀 수정하지 않는다 — `choose_shape_and_placement`의 시그니처가 동일하므로 자동으로 새 전략을 쓰게 된다.
 
-- [ ] **Step 7: Monte Carlo로 "65~100% 구간에서 실제로 구분되는지" 검증 — 이 태스크의 핵심 완료 기준**
+- [ ] **Step 6: Monte Carlo로 개선 확인**
 
-임시 스크립트(커밋하지 않음, 스크래치 디렉터리에 작성)로 다음을 측정한다:
-- 목표 percent를 50/70/80/90/100으로 바꿔가며 각각 최소 1000회 시뮬레이션 (매번 새 빈 보드에서 시작해서 `_fill_instantly`와 동일한 "목표 칸 수에 도달할 때까지 조각을 계속 놓고, 놓을 때마다 줄삭제 적용" 로직을 반복)
-- 각 목표에서 "최종적으로 보드에 남아있는 칸 수(시각적 %)"의 평균을 기록
+임시 스크립트(커밋하지 않음)로 목표 percent 50/70/80/90/100 각각 최소 1000회 시뮬레이션해서 평균 도달 시각적 %를 측정하고, 이전 커밋(`b3762cf`, 즉 Task 2 종료 시점 — 64% 근처에서 정체)보다 나아졌는지, 특히 65~80% 구간이 이전보다 잘 구분되는지 확인한다. (80~100%가 서로 잘 구분되지 않는 것은 이미 알려진 한계이며 이 태스크의 목표가 아니다 — 그 이상은 후속 과제로 남긴다.) 결과를 보고서에 실제 숫자로 남긴다.
 
-**판단 기준**: 70%/80%/90%/100% 목표에서 평균적으로 눈에 띄게 다른(대략적으로나마 오름차순인) 시각적 %가 나와야 한다. 만약 여전히 특정 % 이상에서 평균이 고만고만하게 뭉쳐있다면(예: 70%든 100%든 평균이 비슷비슷하다면), Step 5의 "조각 착지마다 무조건 줄삭제" 방식 대신 아래 대안으로 바꿔서 다시 측정한다:
-
-**대안(Plan B) — 막혔을 때만 줄삭제**: `choose_shape_and_placement`가 `None`을 반환할 때(=더 이상 놓을 곳이 없을 때)만, 가장 아래쪽부터 꽉 찬 줄이 있는지 확인해서 그 줄들만 지운 뒤 다시 배치를 시도한다. 즉 줄삭제를 "막혔을 때 공간을 회수하는 안전장치"로만 쓰고, 평소엔 지금처럼 자연스럽게 쌓이게 둔다. 이렇게 하면 낮은/중간 %에서는 지금 동작을 그대로 유지하면서, 높은 %에서만 막힘을 풀어준다.
-
-Plan B로 구현이 바뀌면 Step 5의 로직을 다시 조정하고(모든 착지 지점에서 무조건 삭제하는 대신, `_fill_instantly`/`_spawn_next_piece`가 배치 실패 시 줄삭제 후 재시도하는 구조로), Step 1~4의 테스트도 이 새 사용 방식에 맞게 보강한다.
-
-**Monte Carlo 결과는 반드시 최종 보고서에 실제 숫자(목표%별 평균 도달 %)로 남긴다.** "해결됐다"는 주장이 아니라 측정값으로 증명한다.
-
-- [ ] **Step 8: 커밋**
+- [ ] **Step 7: 커밋**
 
 ```bash
-git add src/claude_usage_widget/tetris_pieces.py src/claude_usage_widget/widget.py tests/test_tetris_pieces.py tests/test_widget.py
-git commit -m "Add line-clearing to prevent the board from stalling well below high usage percentages"
+git add src/claude_usage_widget/tetris_pieces.py tests/test_tetris_pieces.py
+git commit -m "Prefer the globally deepest-landing tetromino across all shapes, not just the first that fits"
 ```
 
-- [ ] **Step 9: PyInstaller로 재빌드**
+- [ ] **Step 8: PyInstaller로 재빌드**
 
 Run: 기존 `dist/ClaudeUsageWidget.exe`가 실행 중이면 먼저 종료 후, `pyinstaller --onefile --windowed --name ClaudeUsageWidget --paths src run.py`
 

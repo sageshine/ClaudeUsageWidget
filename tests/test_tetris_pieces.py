@@ -164,6 +164,39 @@ def test_choose_shape_and_placement_prefers_globally_deepest_shape_not_just_firs
         assert landing_row == ROWS - 1
 
 
+def test_choose_shape_and_placement_breaks_a_genuine_multi_shape_tie_fairly():
+    # Fill only the bottom-center cell (row ROWS-1, col 2). This blocks the I piece
+    # (width 4, cells all dr=0) from ever landing at the floor (ROWS-1): both of its
+    # candidate start_cols (0 and 1) span column 2, so first_filled(col2)=ROWS-1
+    # drags I's best offset down to ROWS-2 -- exactly matching where every 2-row-tall
+    # shape (O/T/S/Z/J/L) already lands on an otherwise-empty board.
+    #
+    # Hand-verified per-shape deepest landing_row on this board (see scratch
+    # verification in the fix report -- matches find_landing_row/choose_placement
+    # directly, not just this test's assertions):
+    #   I: ROWS-2   O: ROWS-2   T: ROWS-2   S: ROWS-2   Z: ROWS-2
+    #   J: ROWS-3   L: ROWS-3
+    # So I, O, T, S, Z form a genuine 5-way tie at the global-deepest landing_row;
+    # J and L never qualify and must never appear.
+    grid = [[None] * COLS for _ in range(ROWS)]
+    grid[ROWS - 1][2] = "X"
+    board = tuple(tuple(row) for row in grid)
+
+    tied_shapes = {"I", "O", "T", "S", "Z"}
+    seen_shapes = set()
+    for seed in range(300):
+        rng = random.Random(seed)
+        shape_id, col, landing_row = choose_shape_and_placement(board, rng)
+        assert landing_row == ROWS - 2
+        assert shape_id in tied_shapes
+        seen_shapes.add(shape_id)
+
+    # Every tied shape must actually get picked by rng.choice at least once across
+    # 300 seeds -- proving the tie-break is genuinely exercised across shapes, not
+    # just collapsing to a single winner (as every prior test scenario did).
+    assert seen_shapes == tied_shapes
+
+
 def test_find_landing_row_t_piece_lands_on_staggered_stack_with_left_and_right_columns_filled():
     # T piece cells: ((0,0),(0,1),(0,2),(1,1)) at start_col=0
     # col0 filled rows 8-9 (first_filled=8) -> offset_limit = 8-1-0 = 7

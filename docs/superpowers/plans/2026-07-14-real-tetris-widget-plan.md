@@ -657,6 +657,131 @@ Expected: `dist/ClaudeUsageWidget.exe`가 새 코드로 재생성됨. 빌드 전
 
 ---
 
+---
+
+## Task 3: 줄 삭제(line-clearing) 추가 — 65~100% 구간 시각적 정체 문제 해결
+
+**배경**: 최종 브랜치 리뷰에서, 회전·줄삭제가 없는 5칸 보드는 구멍(hole)이 누적되어 실제 사용량이 65~100%인 대부분의 구간에서 보드가 항상 약 64%(대략 32/50칸) 근처에서 막혀버리는 문제가 발견됨. 사용자가 "줄 삭제 추가"를 해결 방향으로 선택함.
+
+**핵심 요구사항**: 한 줄(행)이 5칸 모두 채워지면 그 줄을 지우고 위에 쌓여있던 블록들을 한 칸씩 아래로 내린다 (표준 테트리스 줄삭제). 이렇게 구멍 위에 갇혀있던 공간을 주기적으로 회수해서, 목표 칸 수(`target_filled_cells`)에 도달하지 못하고 영구히 막히는 상황을 없앤다.
+
+**중요 — 이 태스크는 실험적 검증이 핵심이다.** 단순히 "줄삭제를 넣었다"만으로는 충분하지 않다. 구현 후 반드시 이전 라운드(Task 2의 `choose_shape_and_placement` 수정)에서 썼던 것과 같은 방식의 Monte Carlo 시뮬레이션으로 **목표%(50/70/80/90/100%)별로 실제 도달하는 평균 칸 수/시각적 %를 측정**하고, 65~100% 구간에서 서로 확연히 구분되는지(예: 70%와 100%가 비슷한 높이로 보이지 않는지) 실제 숫자로 확인해야 한다.
+
+**Files:**
+- Modify: `src/claude_usage_widget/tetris_pieces.py` (줄삭제 함수 추가)
+- Test: `tests/test_tetris_pieces.py` (줄삭제 함수 테스트 추가)
+- Modify: `src/claude_usage_widget/widget.py` (조각 착지 후 줄삭제 적용)
+- Test: `tests/test_widget.py` (필요 시 보강)
+
+**Interfaces:**
+- Produces: `clear_full_rows(board) -> tuple[Board, int]` — 꽉 찬 행을 전부 제거하고 위 블록들을 내린 뒤, 맨 위에 빈 행을 그만큼 채워 넣은 새 보드와 지워진 행 수를 반환 (원본 보드는 변경하지 않음)
+
+- [ ] **Step 1: `clear_full_rows` 실패하는 테스트 작성**
+
+`tests/test_tetris_pieces.py`에 추가:
+```python
+from claude_usage_widget.tetris_pieces import clear_full_rows
+
+
+def test_clear_full_rows_removes_completed_row_and_shifts_down():
+    grid = [[None] * COLS for _ in range(ROWS)]
+    grid[ROWS - 1] = ["I", "I", "O", "O", "T"]  # 맨 아래 줄이 5칸 모두 참
+    grid[ROWS - 2][0] = "L"  # 그 위 줄엔 한 칸만 참
+    board = tuple(tuple(row) for row in grid)
+
+    new_board, cleared_count = clear_full_rows(board)
+
+    assert cleared_count == 1
+    # 지워진 줄 위에 있던 "L" 조각이 한 칸 아래(맨 아래 줄)로 내려와야 함
+    assert new_board[ROWS - 1][0] == "L"
+    assert all(cell is None for cell in new_board[ROWS - 1][1:])
+    # 맨 위에는 새 빈 행이 생겨야 함
+    assert all(cell is None for cell in new_board[0])
+
+
+def test_clear_full_rows_returns_original_board_unchanged_when_nothing_to_clear():
+    board = place_piece(empty_board(), "O", 0, ROWS - 2)
+    new_board, cleared_count = clear_full_rows(board)
+    assert cleared_count == 0
+    assert new_board == board
+
+
+def test_clear_full_rows_does_not_mutate_input_board():
+    grid = [[None] * COLS for _ in range(ROWS)]
+    grid[ROWS - 1] = ["I", "I", "O", "O", "T"]
+    board = tuple(tuple(row) for row in grid)
+
+    clear_full_rows(board)
+
+    assert board[ROWS - 1] == ("I", "I", "O", "O", "T")  # 원본 그대로
+```
+
+- [ ] **Step 2: 테스트 실패 확인**
+
+Run: `python -m pytest tests/test_tetris_pieces.py -v -k clear_full_rows`
+Expected: FAIL with `ImportError: cannot import name 'clear_full_rows'`
+
+- [ ] **Step 3: `clear_full_rows` 구현**
+
+`src/claude_usage_widget/tetris_pieces.py` 끝에 추가:
+```python
+def clear_full_rows(board):
+    remaining_rows = [row for row in board if any(cell is None for cell in row)]
+    cleared_count = ROWS - len(remaining_rows)
+    if cleared_count == 0:
+        return board, 0
+    empty_rows = [tuple(None for _ in range(COLS)) for _ in range(cleared_count)]
+    return tuple(empty_rows + remaining_rows), cleared_count
+```
+
+- [ ] **Step 4: 테스트 통과 확인**
+
+Run: `python -m pytest tests/test_tetris_pieces.py -v`
+Expected: 전체 PASS
+
+- [ ] **Step 5: `widget.py`에 줄삭제 연결**
+
+조각이 착지할 때마다(=`place_piece` 호출 직후) `clear_full_rows`를 적용해서 `self._board`를 갱신한다. 착지 지점은 두 곳이다:
+1. `_fill_instantly`의 루프 안에서 `self._board = place_piece(...)` 직후
+2. `_animate_piece_fall_step`이 조각을 착지시키는 분기 (`self._board = place_piece(...)` 직후)
+3. (참고용) `apply_state`에서 낙하 중이던 조각을 스냅할 때도 동일하게 적용하는 것이 일관적이다 — 그 지점도 함께 처리한다.
+
+즉 코드 어디서든 `self._board = place_piece(self._board, ...)`가 나오는 자리를 `self._board, _ = clear_full_rows(place_piece(self._board, ...))` 형태로 바꾼다 (반환되는 `cleared_count`는 지금 당장은 쓸 곳이 없으면 버려도 된다).
+
+`from .tetris_pieces import (...)` 임포트 목록에 `clear_full_rows`를 추가한다.
+
+- [ ] **Step 6: 전체 테스트 스위트 통과 확인**
+
+Run: `python -m pytest -v`
+Expected: 전체 PASS, 회귀 없음
+
+- [ ] **Step 7: Monte Carlo로 "65~100% 구간에서 실제로 구분되는지" 검증 — 이 태스크의 핵심 완료 기준**
+
+임시 스크립트(커밋하지 않음, 스크래치 디렉터리에 작성)로 다음을 측정한다:
+- 목표 percent를 50/70/80/90/100으로 바꿔가며 각각 최소 1000회 시뮬레이션 (매번 새 빈 보드에서 시작해서 `_fill_instantly`와 동일한 "목표 칸 수에 도달할 때까지 조각을 계속 놓고, 놓을 때마다 줄삭제 적용" 로직을 반복)
+- 각 목표에서 "최종적으로 보드에 남아있는 칸 수(시각적 %)"의 평균을 기록
+
+**판단 기준**: 70%/80%/90%/100% 목표에서 평균적으로 눈에 띄게 다른(대략적으로나마 오름차순인) 시각적 %가 나와야 한다. 만약 여전히 특정 % 이상에서 평균이 고만고만하게 뭉쳐있다면(예: 70%든 100%든 평균이 비슷비슷하다면), Step 5의 "조각 착지마다 무조건 줄삭제" 방식 대신 아래 대안으로 바꿔서 다시 측정한다:
+
+**대안(Plan B) — 막혔을 때만 줄삭제**: `choose_shape_and_placement`가 `None`을 반환할 때(=더 이상 놓을 곳이 없을 때)만, 가장 아래쪽부터 꽉 찬 줄이 있는지 확인해서 그 줄들만 지운 뒤 다시 배치를 시도한다. 즉 줄삭제를 "막혔을 때 공간을 회수하는 안전장치"로만 쓰고, 평소엔 지금처럼 자연스럽게 쌓이게 둔다. 이렇게 하면 낮은/중간 %에서는 지금 동작을 그대로 유지하면서, 높은 %에서만 막힘을 풀어준다.
+
+Plan B로 구현이 바뀌면 Step 5의 로직을 다시 조정하고(모든 착지 지점에서 무조건 삭제하는 대신, `_fill_instantly`/`_spawn_next_piece`가 배치 실패 시 줄삭제 후 재시도하는 구조로), Step 1~4의 테스트도 이 새 사용 방식에 맞게 보강한다.
+
+**Monte Carlo 결과는 반드시 최종 보고서에 실제 숫자(목표%별 평균 도달 %)로 남긴다.** "해결됐다"는 주장이 아니라 측정값으로 증명한다.
+
+- [ ] **Step 8: 커밋**
+
+```bash
+git add src/claude_usage_widget/tetris_pieces.py src/claude_usage_widget/widget.py tests/test_tetris_pieces.py tests/test_widget.py
+git commit -m "Add line-clearing to prevent the board from stalling well below high usage percentages"
+```
+
+- [ ] **Step 9: PyInstaller로 재빌드**
+
+Run: 기존 `dist/ClaudeUsageWidget.exe`가 실행 중이면 먼저 종료 후, `pyinstaller --onefile --windowed --name ClaudeUsageWidget --paths src run.py`
+
+---
+
 ## Self-Review 메모
 
 - **스펙 커버리지**: 설계 문서(v2)의 보드 규격/색상/배치 휴리스틱/채우기 목표/애니메이션/낙하 중 스냅/GAME OVER 조건이 Task 1(순수 시뮬레이션)과 Task 2(위젯+애니메이션)에 각각 매핑됨.

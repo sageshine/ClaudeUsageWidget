@@ -47,15 +47,26 @@ class SettingsDialog:
         self.top.lift()
 
     def _save(self):
-        if self.warning_var.get() >= self.danger_var.get():
+        try:
+            interval = self.interval_var.get()
+            warning = self.warning_var.get()
+            danger = self.danger_var.get()
+        except (tk.TclError, ValueError):
+            # IntVar.get() raises tk.TclError when the Spinbox contains text the user typed by
+            # hand instead of picked with the arrows (e.g. "abc"). Without this, a --windowed
+            # build swallows the exception silently and 저장 appears to do nothing.
+            messagebox.showerror("설정 오류", "숫자만 입력해주세요.")
+            return
+
+        if warning >= danger:
             messagebox.showerror("설정 오류", "주의 임계값은 위험 임계값보다 작아야 해요.")
             return
 
         result = {
             "session_key": self.session_key_var.get().strip() or None,
             "org_id": self.org_id_var.get().strip() or None,
-            "refresh_interval_seconds": max(60, self.interval_var.get()),
-            "thresholds": {"warning": self.warning_var.get(), "danger": self.danger_var.get()},
+            "refresh_interval_seconds": max(60, interval),
+            "thresholds": {"warning": warning, "danger": danger},
             "show_credit": self.credit_var.get(),
             "autostart_enabled": self.autostart_var.get(),
         }

@@ -55,6 +55,28 @@ def test_save_rejects_warning_threshold_greater_than_or_equal_danger(root, monke
     dialog.top.destroy()
 
 
+def test_save_shows_error_when_spinbox_has_non_numeric_input(root, monkeypatch):
+    """Finding 4: a hand-typed non-numeric Spinbox value makes IntVar.get() raise tk.TclError.
+    In a --windowed build that exception would otherwise vanish silently -- 저장 must instead
+    show an error and leave on_save uncalled."""
+    errors = []
+    monkeypatch.setattr(settings_ui.messagebox, "showerror", lambda title, msg: errors.append(msg))
+    saved = []
+    dialog = settings_ui.SettingsDialog(root, dict(DEFAULT_CONFIG), on_save=saved.append)
+
+    def raise_tclerror():
+        raise tk.TclError("expected integer, got junk")
+
+    monkeypatch.setattr(dialog.interval_var, "get", raise_tclerror)
+
+    dialog._save()
+
+    assert saved == []
+    assert len(errors) == 1
+    assert "숫자" in errors[0]
+    dialog.top.destroy()
+
+
 def test_enforces_minimum_refresh_interval_of_60_seconds(root, monkeypatch):
     monkeypatch.setattr(settings_ui.messagebox, "showerror", lambda *a, **k: None)
     saved = []

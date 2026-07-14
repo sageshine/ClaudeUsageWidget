@@ -19,50 +19,68 @@ def _snapshot(session_pct, weekly_pct, credit_enabled=False):
 
 
 def test_compute_widget_state_calm_below_warning_threshold():
-    state = compute_widget_state(_snapshot(9, 17), THRESHOLDS)
+    state = compute_widget_state(_snapshot(9, 17), THRESHOLDS, True)
     assert state.mood == Mood.CALM
     assert state.headline_percent == 17
 
 
 def test_compute_widget_state_warning_at_threshold():
-    state = compute_widget_state(_snapshot(60, 10), THRESHOLDS)
+    state = compute_widget_state(_snapshot(60, 10), THRESHOLDS, True)
     assert state.mood == Mood.WARNING
 
 
 def test_compute_widget_state_danger_at_threshold():
-    state = compute_widget_state(_snapshot(10, 85), THRESHOLDS)
+    state = compute_widget_state(_snapshot(10, 85), THRESHOLDS, True)
     assert state.mood == Mood.DANGER
 
 
 def test_compute_widget_state_includes_scoped_and_credit_rows_when_enabled():
-    state = compute_widget_state(_snapshot(9, 17, credit_enabled=True), THRESHOLDS)
+    state = compute_widget_state(_snapshot(9, 17, credit_enabled=True), THRESHOLDS, True)
     labels = [row[0] for row in state.detail_rows]
     assert any("Fable" in label for label in labels)
     assert any("크레딧" in label for label in labels)
 
 
 def test_compute_widget_state_omits_credit_row_when_disabled():
-    state = compute_widget_state(_snapshot(9, 17, credit_enabled=False), THRESHOLDS)
+    state = compute_widget_state(_snapshot(9, 17, credit_enabled=False), THRESHOLDS, True)
+    labels = [row[0] for row in state.detail_rows]
+    assert not any("크레딧" in label for label in labels)
+
+
+def test_compute_widget_state_includes_credit_row_when_api_enabled_and_show_credit_true():
+    state = compute_widget_state(_snapshot(9, 17, credit_enabled=True), THRESHOLDS, show_credit=True)
+    labels = [row[0] for row in state.detail_rows]
+    assert any("크레딧" in label for label in labels)
+
+
+def test_compute_widget_state_omits_credit_row_when_api_enabled_but_show_credit_false():
+    state = compute_widget_state(_snapshot(9, 17, credit_enabled=True), THRESHOLDS, show_credit=False)
     labels = [row[0] for row in state.detail_rows]
     assert not any("크레딧" in label for label in labels)
 
 
 def test_resolve_state_setup_needed_when_result_is_none():
-    state = resolve_state(None, THRESHOLDS)
+    state = resolve_state(None, THRESHOLDS, True)
     assert state.mood == Mood.SETUP_NEEDED
 
 
 def test_resolve_state_auth_error_when_result_is_auth_error():
-    state = resolve_state(AuthError("expired"), THRESHOLDS)
+    state = resolve_state(AuthError("expired"), THRESHOLDS, True)
     assert state.mood == Mood.AUTH_ERROR
 
 
 def test_resolve_state_warning_when_result_is_other_exception():
-    state = resolve_state(TransientError("network"), THRESHOLDS)
+    state = resolve_state(TransientError("network"), THRESHOLDS, True)
     assert state.mood == Mood.WARNING
 
 
 def test_resolve_state_delegates_to_compute_widget_state_for_snapshot():
-    state = resolve_state(_snapshot(9, 17), THRESHOLDS)
+    state = resolve_state(_snapshot(9, 17), THRESHOLDS, True)
     assert state.mood == Mood.CALM
     assert state.headline_percent == 17
+
+
+def test_resolve_state_respects_show_credit_false_for_snapshot_result():
+    state = resolve_state(_snapshot(9, 17, credit_enabled=True), THRESHOLDS, False)
+    labels = [row[0] for row in state.detail_rows]
+    assert not any("크레딧" in label for label in labels)

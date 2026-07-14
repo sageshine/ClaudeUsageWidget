@@ -38,7 +38,7 @@ class WidgetState:
     detail_rows: list
 
 
-def compute_widget_state(snapshot: UsageSnapshot, thresholds: dict) -> WidgetState:
+def compute_widget_state(snapshot: UsageSnapshot, thresholds: dict, show_credit: bool) -> WidgetState:
     headline = max(snapshot.session.percent, snapshot.weekly_all.percent)
     if headline >= thresholds["danger"]:
         mood = Mood.DANGER
@@ -55,13 +55,13 @@ def compute_widget_state(snapshot: UsageSnapshot, thresholds: dict) -> WidgetSta
     ]
     for scoped in snapshot.weekly_scoped:
         rows.append((f"주간 한도 ({scoped.model_name})", scoped.percent))
-    if snapshot.credit.enabled:
+    if snapshot.credit.enabled and show_credit:
         rows.append((f"사용 크레딧 (${snapshot.credit.used_dollars:.2f})", snapshot.credit.percent))
 
     return WidgetState(mood=mood, headline_percent=headline, tooltip=tooltip, detail_rows=rows)
 
 
-def resolve_state(result, thresholds: dict) -> WidgetState:
+def resolve_state(result, thresholds: dict, show_credit: bool) -> WidgetState:
     if result is None:
         return WidgetState(
             mood=Mood.SETUP_NEEDED,
@@ -86,4 +86,4 @@ def resolve_state(result, thresholds: dict) -> WidgetState:
             tooltip="일시적으로 갱신에 실패했어요 (마지막 값 유지)",
             detail_rows=[("네트워크 오류로 최신 값을 가져오지 못했어요.", None)],
         )
-    return compute_widget_state(result, thresholds)
+    return compute_widget_state(result, thresholds, show_credit)

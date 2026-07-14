@@ -21,9 +21,32 @@ claude.ai 데스크톱 앱 설정 > 사용량 화면에는 다음 정보가 표�
 
 claude.ai가 설정 > 사용량 화면을 렌더링할 때 호출하는 내부(비공식) API를 그대로 호출한다. Anthropic이 공식적으로 문서화하거나 지원하는 API가 아니며, 다음 특성을 가진다:
 
-- 인증: 브라우저의 `sessionKey` 쿠키 값 (로그인 시 발급, 브라우저 개발자도구 > Application > Cookies에서 직접 복사)
-- organization ID: 로그인 후 URL 또는 `lastActiveOrg` 쿠키에서 확인 가능
-- 정확한 엔드포인트 경로와 응답 JSON 구조는 **구현 1단계에서 실제 로그인 세션으로 네트워크 탭을 확인해 확정**한다 (커뮤니티 사례상 `/api/organizations/{org_id}/...` 형태로 세션/주간 사용률을 반환하는 것으로 추정)
+- 인증: 브라우저의 `sessionKey` 쿠키 값 (httpOnly라 JS로는 못 읽음 — 로그인 후 브라우저 개발자도구 > Application > Cookies에서 사용자가 직접 복사)
+- organization ID: `lastActiveOrg` 쿠키 값 그대로 사용 (수동 입력 불필요, 위젯이 쿠키를 못 읽는 경우를 대비해 설정에 수동 입력란은 남겨둠)
+- **엔드포인트 확정**: `GET https://claude.ai/api/organizations/{org_id}/usage` (실제 로그인 세션으로 확인 완료, 2026-07-14)
+- **응답 JSON 구조** (필요한 필드만):
+  ```json
+  {
+    "five_hour": { "utilization": 9, "resets_at": "2026-07-14T09:00:00Z" },
+    "seven_day": { "utilization": 17, "resets_at": "2026-07-19T02:00:00Z" },
+    "limits": [
+      { "kind": "session", "percent": 9, "resets_at": "...", "severity": "normal" },
+      { "kind": "weekly_all", "percent": 17, "resets_at": "...", "severity": "normal" },
+      { "kind": "weekly_scoped", "percent": 19, "resets_at": "...", "scope": { "model": { "display_name": "Fable" } }, "severity": "normal" }
+    ],
+    "spend": {
+      "enabled": false,
+      "percent": 0,
+      "used": { "amount_minor": 0, "currency": "USD", "exponent": 2 },
+      "limit": null
+    }
+  }
+  ```
+  - 세션 % = `five_hour.utilization` (또는 `limits[kind=session].percent`, 동일 값)
+  - 주간(전체 모델) % = `seven_day.utilization` (또는 `limits[kind=weekly_all].percent`)
+  - 주간(개별 모델) % = `limits[kind=weekly_scoped]` — 여러 개 있을 수 있음(모델별로), `scope.model.display_name`으로 구분
+  - 크레딧 = `spend.enabled`가 true일 때만 `spend.percent`, `spend.used`, `spend.limit` 사용
+- 요청 시 `Cookie: sessionKey=<값>` 헤더만 실어 보내면 됨 (다른 인증 헤더 불필요)
 - 언제든 Anthropic이 내부 구조를 바꾸면 깨질 수 있는 비공식 방식이라는 점을 README와 앱 내 안내에 명시
 
 ## 아키텍처
@@ -85,10 +108,9 @@ claude.ai가 설정 > 사용량 화면을 렌더링할 때 호출하는 내부(�
 
 ## 구현 순서 (다음 단계 plan에서 상세화)
 
-1. 실제 로그인 세션으로 내부 API 엔드포인트/응답 구조 확정 (사용자와 함께 개발자도구로 1회 확인)
-2. API 클라이언트 + 로컬 파서/캐시 구현
-3. Tkinter 위젯 + pystray 트레이 아이콘 구현
-4. 설정 화면 + Credential Manager 연동
-5. 에러 처리/재시도 로직
-6. PyInstaller 패키징 + 자동 시작 등록
-7. 수동 테스트 및 사용자 검수
+1. API 클라이언트 + 로컬 파서/캐시 구현 (엔드포인트/응답 구조는 확정됨, 위 참고)
+2. Tkinter 위젯 + pystray 트레이 아이콘 구현
+3. 설정 화면 + Credential Manager 연동
+4. 에러 처리/재시도 로직
+5. PyInstaller 패키징 + 자동 시작 등록
+6. 수동 테스트 및 사용자 검수

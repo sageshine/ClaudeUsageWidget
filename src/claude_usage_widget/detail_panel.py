@@ -33,7 +33,7 @@ class DetailPanel:
     def hide(self) -> None:
         self.top.withdraw()
 
-    def render(self, rows, updated_text: str) -> None:
+    def render(self, rows: list[tuple[str, int | None]], updated_text: str) -> None:
         for widget in self._row_widgets:
             widget.destroy()
         self._row_widgets = []

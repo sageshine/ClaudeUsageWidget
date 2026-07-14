@@ -82,3 +82,15 @@ def test_fetch_usage_raises_transient_error_on_500(mock_get):
         assert False, "expected TransientError"
     except TransientError:
         pass
+
+
+@patch("claude_usage_widget.api_client.requests.get")
+def test_fetch_usage_raises_transient_error_on_malformed_json(mock_get):
+    mock_resp = MagicMock(status_code=200)
+    mock_resp.json.side_effect = ValueError("bad json")
+    mock_get.return_value = mock_resp
+    try:
+        fetch_usage("key", "org-123")
+        assert False, "expected TransientError"
+    except TransientError as exc:
+        assert "JSON" in str(exc)

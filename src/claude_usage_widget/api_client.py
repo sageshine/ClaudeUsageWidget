@@ -29,7 +29,12 @@ def fetch_usage(session_key: str, org_id: str, timeout: float = 10.0) -> UsageSn
     if resp.status_code != 200:
         raise TransientError(f"unexpected status {resp.status_code}")
 
-    return parse_usage_response(resp.json())
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise TransientError(f"failed to parse response body as JSON: {exc}") from exc
+
+    return parse_usage_response(data)
 
 
 def parse_usage_response(data: dict) -> UsageSnapshot:

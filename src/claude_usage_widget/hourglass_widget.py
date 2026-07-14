@@ -1,12 +1,18 @@
+import math
 import tkinter as tk
 
 from .widget_state import Mood, MOOD_COLORS, WidgetState
 
 _TRANSPARENT_KEY = "magenta"
-_GLASS_COLOR = "#9CA3AF"
-_MARGIN = 8
-_BULB_HALF_WIDTH = 27
+_GLASS_OUTLINE = "#CBD5E1"
+_GLASS_SHINE = "#FFFFFF"
+_WOOD_BASE = "#92400E"
+_MARGIN = 4
+_CAP_HEIGHT = 7
+_POST_WIDTH = 5
+_BULB_HALF_WIDTH = 24
 _NECK_HALF_WIDTH = 3
+_CURVE_STEPS = 5
 _TICK_MS = 120
 _DRAIN_STEP = 0.01
 _FLIP_FRAME_MS = 90
@@ -19,13 +25,36 @@ def _lerp(a, b, t):
     return a + (b - a) * t
 
 
+def _hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def _lighten(hex_color, amount=0.4):
+    r, g, b = _hex_to_rgb(hex_color)
+    r = int(r + (255 - r) * amount)
+    g = int(g + (255 - g) * amount)
+    b = int(b + (255 - b) * amount)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _darken(hex_color, amount=0.4):
+    r, g, b = _hex_to_rgb(hex_color)
+    r = int(r * (1 - amount))
+    g = int(g * (1 - amount))
+    b = int(b * (1 - amount))
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
 class HourglassWidget:
     """CharacterWidget(테트리스)과 같은 인터페이스를 구현하는 대체 디자인.
     남은 사용량이 위 유리구에, 사용한 만큼 아래 유리구에 모래로 쌓인다.
-    한도가 다 차면(100%) 위가 완전히 비고, 리셋되면 뒤집히며 다시 채워진다."""
+    나무 프레임(위아래 마개 + 좌우 기둥)과 완만하게 잘록해지는 유리구 곡선으로
+    실제 모래시계 실루엣에 가깝게 그린다. 한도가 다 차면(100%) 위가 완전히
+    비고, 리셋되면 좌우로 접혔다 펴지며 다시 채워진다."""
 
-    WIDTH = 70
-    HEIGHT = 140
+    WIDTH = 2 * (_BULB_HALF_WIDTH + _POST_WIDTH) + 2 * _MARGIN
+    HEIGHT = 150
 
     def __init__(self, root, initial_pos, on_move, on_right_click):
         self.top = tk.Toplevel(root)
@@ -47,12 +76,24 @@ class HourglassWidget:
 
         self._center_x = self.WIDTH / 2
         self._neck_y = self.HEIGHT / 2
+        self._top_y = _MARGIN + _CAP_HEIGHT
+        self._bottom_y = self.HEIGHT - _MARGIN - _CAP_HEIGHT
+
+        self._wood_items = [
+            self._create_bevel_rect(),  # top cap
+            self._create_bevel_rect(),  # bottom cap
+            self._create_bevel_rect(),  # left post
+            self._create_bevel_rect(),  # right post
+        ]
+        self._paint_wood()
 
         initial_color = MOOD_COLORS[Mood.CALM]
-        self._top_sand = self.canvas.create_polygon(0, 0, 0, 0, 0, 0, 0, 0, fill=initial_color, outline="")
-        self._bottom_sand = self.canvas.create_polygon(0, 0, 0, 0, 0, 0, 0, 0, fill=initial_color, outline="")
+        self._top_sand = self.canvas.create_polygon(0, 0, 0, 0, fill=initial_color, outline="")
+        self._bottom_sand = self.canvas.create_polygon(0, 0, 0, 0, fill=initial_color, outline="")
         self._trickle = self.canvas.create_oval(0, 0, 0, 0, fill=initial_color, outline="", state="hidden")
-        self._outline = self.canvas.create_polygon(*self._outline_points(1.0), fill="", outline=_GLASS_COLOR, width=2)
+        self._outline = self.canvas.create_polygon(*self._outline_points(1.0), fill="", outline=_GLASS_OUTLINE, width=1)
+        self._shine_top = self.canvas.create_line(0, 0, 0, 0, width=2, fill=_GLASS_SHINE, stipple="gray25")
+        self._shine_bottom = self.canvas.create_line(0, 0, 0, 0, width=2, fill=_GLASS_SHINE, stipple="gray25")
 
         self._game_over_bg = self.canvas.create_rectangle(
             0, 0, self.WIDTH, self.HEIGHT, fill="#000000", stipple="gray50", outline="", state="hidden"
@@ -91,59 +132,77 @@ class HourglassWidget:
         self._redraw(1.0)
         self._schedule_tick()
 
-    # ---- 도형 계산 ----
+    # ---- 나무 프레임 (위아래 마개 + 좌우 기둥) ----
 
-    def _half_width_at(self, y, y0, hw0, y1, hw1):
-        if y1 == y0:
-            return hw0
-        t = max(0.0, min(1.0, (y - y0) / (y1 - y0)))
-        return _lerp(hw0, hw1, t)
+    def _create_bevel_rect(self):
+        base = self.canvas.create_rectangle(0, 0, 0, 0, fill=_WOOD_BASE, outline="")
+        highlight = self.canvas.create_line(0, 0, 0, 0, 0, 0, width=1, fill=_lighten(_WOOD_BASE))
+        shadow = self.canvas.create_line(0, 0, 0, 0, 0, 0, width=1, fill=_darken(_WOOD_BASE))
+        return {"base": base, "highlight": highlight, "shadow": shadow}
+
+    def _set_bevel_rect(self, items, x1, y1, x2, y2):
+        self.canvas.coords(items["base"], x1, y1, x2, y2)
+        self.canvas.coords(items["highlight"], x1, y2, x1, y1, x2, y1)
+        self.canvas.coords(items["shadow"], x1, y2, x2, y2, x2, y1)
+
+    def _paint_wood(self, scale_x=1.0):
+        cx = self._center_x
+        outer_hw = _BULB_HALF_WIDTH + _POST_WIDTH
+        x_left = self._scaled(cx - outer_hw, scale_x)
+        x_right = self._scaled(cx + outer_hw, scale_x)
+        top_cap, bottom_cap, left_post, right_post = self._wood_items
+        self._set_bevel_rect(top_cap, x_left, _MARGIN, x_right, self._top_y)
+        self._set_bevel_rect(bottom_cap, x_left, self._bottom_y, x_right, self.HEIGHT - _MARGIN)
+        post_left_x1 = self._scaled(cx - outer_hw, scale_x)
+        post_left_x2 = self._scaled(cx - _BULB_HALF_WIDTH, scale_x)
+        self._set_bevel_rect(left_post, post_left_x1, self._top_y, post_left_x2, self._bottom_y)
+        post_right_x1 = self._scaled(cx + _BULB_HALF_WIDTH, scale_x)
+        post_right_x2 = self._scaled(cx + outer_hw, scale_x)
+        self._set_bevel_rect(right_post, post_right_x1, self._top_y, post_right_x2, self._bottom_y)
+
+    # ---- 유리구 곡선 계산 ----
 
     def _top_bulb_half_width(self, y):
-        return self._half_width_at(y, _MARGIN, _BULB_HALF_WIDTH, self._neck_y, _NECK_HALF_WIDTH)
+        span = self._neck_y - self._top_y
+        t = 0.0 if span == 0 else max(0.0, min(1.0, (y - self._top_y) / span))
+        s = 1 - t  # 1: 넓은 쪽(위), 0: 목
+        return _NECK_HALF_WIDTH + (_BULB_HALF_WIDTH - _NECK_HALF_WIDTH) * math.sin(s * math.pi / 2)
 
     def _bottom_bulb_half_width(self, y):
-        return self._half_width_at(y, self._neck_y, _NECK_HALF_WIDTH, self.HEIGHT - _MARGIN, _BULB_HALF_WIDTH)
+        span = self._bottom_y - self._neck_y
+        t = 0.0 if span == 0 else max(0.0, min(1.0, (y - self._neck_y) / span))
+        s = t  # 0: 목, 1: 넓은 쪽(아래)
+        return _NECK_HALF_WIDTH + (_BULB_HALF_WIDTH - _NECK_HALF_WIDTH) * math.sin(s * math.pi / 2)
+
+    def _curve_points(self, y_from, y_to, half_width_fn, steps=_CURVE_STEPS):
+        return [(_lerp(y_from, y_to, i / steps), half_width_fn(_lerp(y_from, y_to, i / steps))) for i in range(steps + 1)]
 
     def _scaled(self, x, scale_x):
         return self._center_x + (x - self._center_x) * scale_x
 
+    def _mirrored_polygon(self, left_pts, scale_x):
+        cx = self._center_x
+        right_pts = [(2 * cx - px, py) for px, py in reversed(left_pts)]
+        all_pts = left_pts + right_pts
+        return [coord for px, py in all_pts for coord in (self._scaled(px, scale_x), py)]
+
     def _outline_points(self, scale_x):
         cx = self._center_x
-        pts = [
-            (cx - _BULB_HALF_WIDTH, _MARGIN),
-            (cx + _BULB_HALF_WIDTH, _MARGIN),
-            (cx + _NECK_HALF_WIDTH, self._neck_y),
-            (cx + _BULB_HALF_WIDTH, self.HEIGHT - _MARGIN),
-            (cx - _BULB_HALF_WIDTH, self.HEIGHT - _MARGIN),
-            (cx - _NECK_HALF_WIDTH, self._neck_y),
-        ]
-        return [coord for px, py in pts for coord in (self._scaled(px, scale_x), py)]
+        left_pts = [(cx - hw, y) for y, hw in self._curve_points(self._top_y, self._neck_y, self._top_bulb_half_width)]
+        left_pts += [(cx - hw, y) for y, hw in self._curve_points(self._neck_y, self._bottom_y, self._bottom_bulb_half_width)]
+        return self._mirrored_polygon(left_pts, scale_x)
 
     def _top_sand_points(self, fraction_remaining, scale_x):
         cx = self._center_x
-        fill_top_y = self._neck_y - fraction_remaining * (self._neck_y - _MARGIN)
-        hw = self._top_bulb_half_width(fill_top_y)
-        pts = [
-            (cx - _NECK_HALF_WIDTH, self._neck_y),
-            (cx - hw, fill_top_y),
-            (cx + hw, fill_top_y),
-            (cx + _NECK_HALF_WIDTH, self._neck_y),
-        ]
-        return [coord for px, py in pts for coord in (self._scaled(px, scale_x), py)]
+        fill_top_y = self._neck_y - fraction_remaining * (self._neck_y - self._top_y)
+        left_pts = [(cx - hw, y) for y, hw in self._curve_points(fill_top_y, self._neck_y, self._top_bulb_half_width)]
+        return self._mirrored_polygon(left_pts, scale_x)
 
     def _bottom_sand_points(self, fraction_filled, scale_x):
         cx = self._center_x
-        bottom_y = self.HEIGHT - _MARGIN
-        fill_top_y = bottom_y - fraction_filled * (bottom_y - self._neck_y)
-        hw = self._bottom_bulb_half_width(fill_top_y)
-        pts = [
-            (cx - hw, fill_top_y),
-            (cx - _BULB_HALF_WIDTH, bottom_y),
-            (cx + _BULB_HALF_WIDTH, bottom_y),
-            (cx + hw, fill_top_y),
-        ]
-        return [coord for px, py in pts for coord in (self._scaled(px, scale_x), py)]
+        fill_top_y = self._bottom_y - fraction_filled * (self._bottom_y - self._neck_y)
+        left_pts = [(cx - hw, y) for y, hw in self._curve_points(fill_top_y, self._bottom_y, self._bottom_bulb_half_width)]
+        return self._mirrored_polygon(left_pts, scale_x)
 
     def _redraw(self, scale_x=1.0):
         remaining = 1.0 - self._displayed_fraction
@@ -152,7 +211,16 @@ class HourglassWidget:
         self.canvas.coords(self._outline, *self._outline_points(scale_x))
         self.canvas.itemconfig(self._top_sand, fill=self._color)
         self.canvas.itemconfig(self._bottom_sand, fill=self._color)
+        self._paint_wood(scale_x)
+        self._redraw_shine(scale_x)
         self._redraw_trickle(scale_x)
+
+    def _redraw_shine(self, scale_x):
+        cx = self._center_x
+        top_x = self._scaled(cx - _BULB_HALF_WIDTH * 0.45, scale_x)
+        self.canvas.coords(self._shine_top, top_x, self._top_y + 6, top_x, self._neck_y - 8)
+        bottom_x = self._scaled(cx - _BULB_HALF_WIDTH * 0.45, scale_x)
+        self.canvas.coords(self._shine_bottom, bottom_x, self._neck_y + 8, bottom_x, self._bottom_y - 6)
 
     def _redraw_trickle(self, scale_x):
         active = self._displayed_fraction < 1.0 and not self._flipping

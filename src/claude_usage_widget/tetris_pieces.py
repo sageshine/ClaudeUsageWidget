@@ -91,12 +91,3 @@ def choose_shape_and_placement(board, rng: random.Random):
             col, landing_row = placement
             return shape_id, col, landing_row
     return None
-
-
-def clear_full_rows(board):
-    remaining_rows = [row for row in board if any(cell is None for cell in row)]
-    cleared_count = ROWS - len(remaining_rows)
-    if cleared_count == 0:
-        return board, 0
-    empty_rows = [tuple(None for _ in range(COLS)) for _ in range(cleared_count)]
-    return tuple(empty_rows + remaining_rows), cleared_count

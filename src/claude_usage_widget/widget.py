@@ -18,9 +18,9 @@ from .widget_state import WidgetState
 
 _TRANSPARENT_KEY = "magenta"
 _BORDER_BASE = "#9CA3AF"
-_BORDER_THICKNESS = 3
-_CELL_SIZE = 12
-_BEVEL = 2
+_BORDER_THICKNESS = 2
+_CELL_SIZE = 8
+_BEVEL = 1
 _FALL_STEP_MS = 150
 _SPAWN_GAP_MS = 400
 _DECORATIVE_LINGER_MS = 500
@@ -95,7 +95,7 @@ class CharacterWidget:
             (interior_y1 + interior_y2) / 2,
             text="GAME\nOVER",
             fill="white",
-            font=("Segoe UI", 9, "bold"),
+            font=("Segoe UI", 6, "bold"),
             justify="center",
             state="hidden",
         )

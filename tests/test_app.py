@@ -1,7 +1,9 @@
 import threading
+from datetime import datetime, timezone
 
 from claude_usage_widget import app as app_module
 from claude_usage_widget import config as config_module
+from claude_usage_widget.models import CreditInfo, LimitInfo, ScopedLimit, UsageSnapshot
 from claude_usage_widget.widget_state import Mood, WidgetState
 
 
@@ -203,6 +205,7 @@ def _make_refresh_test_instance():
     instance._timer_lock = threading.Lock()
     instance._refresh_generation = 0
     instance._quitting = False
+    instance._last_snapshot = None
     instance.widget = _FakeWidget()
     instance.detail_panel = _FakeDetailPanel()
     instance.tray_icon = _FakeTrayIcon()
@@ -343,3 +346,121 @@ def test_background_refresh_discarded_after_quit(monkeypatch):
 
     assert applied_states == []
     assert _FakeTimer.instances == []
+
+
+def _snapshot(session_pct=42, weekly_pct=17):
+    now = datetime.now(timezone.utc)
+    return UsageSnapshot(
+        session=LimitInfo(percent=session_pct, resets_at=now),
+        weekly_all=LimitInfo(percent=weekly_pct, resets_at=now),
+        weekly_scoped=[ScopedLimit(model_name="Fable", percent=19, resets_at=now)],
+        credit=CreditInfo(enabled=False, percent=0, used_dollars=0.0, limit_dollars=None),
+        fetched_at=now,
+    )
+
+
+def test_resolve_state_passes_show_credit_from_config():
+    """Finding 1: show_credit must actually reach compute_widget_state/resolve_state, not just
+    sit unused in config."""
+    instance = _make_refresh_test_instance()
+    snapshot = _snapshot()
+    snapshot.credit.enabled = True
+
+    instance.config["show_credit"] = True
+    state_on = instance._resolve_state(snapshot)
+    labels_on = [row[0] for row in state_on.detail_rows]
+    assert any("크레딧" in label for label in labels_on)
+
+    instance.config["show_credit"] = False
+    state_off = instance._resolve_state(snapshot)
+    labels_off = [row[0] for row in state_off.detail_rows]
+    assert not any("크레딧" in label for label in labels_off)
+
+
+def test_transient_error_after_success_retains_last_known_numbers():
+    """Finding 2: a transient fetch failure that follows a successful fetch must keep showing
+    the last known real percentages in detail_rows, not just the generic error line."""
+    instance = _make_refresh_test_instance()
+
+    snapshot = _snapshot(session_pct=42, weekly_pct=17)
+    state1 = instance._resolve_state(snapshot)
+    assert state1.mood == Mood.CALM
+
+    # Simulate _fetch_result() having cached the successful snapshot (as the real method does).
+    instance._last_snapshot = snapshot
+
+    state2 = instance._resolve_state(app_module.TransientError("network blip"))
+
+    assert state2.mood == Mood.WARNING
+    session_row = next(row for row in state2.detail_rows if row[0] == "현재 세션")
+    weekly_row = next(row for row in state2.detail_rows if row[0] == "주간 한도 (전체 모델)")
+    assert session_row[1] == 42
+    assert weekly_row[1] == 17
+    # Not just the old generic single-line error message.
+    assert state2.detail_rows != [("네트워크 오류로 최신 값을 가져오지 못했어요.", None)]
+
+
+def test_transient_error_without_prior_success_falls_back_to_generic_message():
+    """When no snapshot has ever succeeded, there's nothing to fall back to -- keep the original
+    generic error row instead of crashing or showing stale-but-fake data."""
+    instance = _make_refresh_test_instance()
+    assert instance._last_snapshot is None
+
+    state = instance._resolve_state(app_module.TransientError("network blip"))
+
+    assert state.mood == Mood.WARNING
+    assert state.detail_rows == [("네트워크 오류로 최신 값을 가져오지 못했어요.", None)]
+
+
+def test_fetch_result_caches_last_snapshot_on_success(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(app_module.credential_store, "load_session_key", lambda: "key")
+
+    snapshot = _snapshot()
+    monkeypatch.setattr(app_module, "fetch_usage_with_retry", lambda session_key, org_id: snapshot)
+
+    instance = app_module.App.__new__(app_module.App)
+    instance.config = {"org_id": "org-1"}
+    instance._last_snapshot = None
+
+    result = instance._fetch_result()
+
+    assert result is snapshot
+    assert instance._last_snapshot is snapshot
+
+
+def test_handle_first_run_shows_disclaimer_then_opens_settings(monkeypatch):
+    instance = app_module.App.__new__(app_module.App)
+    instance._first_run = True
+    calls = []
+    monkeypatch.setattr(instance, "_show_first_run_disclaimer", lambda: calls.append("disclaimer"))
+    monkeypatch.setattr(instance, "_open_settings", lambda: calls.append("settings"))
+
+    instance._handle_first_run()
+
+    assert calls == ["disclaimer", "settings"]
+
+
+def test_handle_first_run_does_nothing_on_subsequent_runs(monkeypatch):
+    instance = app_module.App.__new__(app_module.App)
+    instance._first_run = False
+    calls = []
+    monkeypatch.setattr(instance, "_show_first_run_disclaimer", lambda: calls.append("disclaimer"))
+    monkeypatch.setattr(instance, "_open_settings", lambda: calls.append("settings"))
+
+    instance._handle_first_run()
+
+    assert calls == []
+
+
+def test_show_first_run_disclaimer_mentions_unofficial_api_and_session_key(monkeypatch):
+    instance = app_module.App.__new__(app_module.App)
+    calls = []
+    monkeypatch.setattr(app_module.messagebox, "showwarning", lambda title, msg: calls.append((title, msg)))
+
+    instance._show_first_run_disclaimer()
+
+    assert len(calls) == 1
+    _, message = calls[0]
+    assert "비공식" in message
+    assert "sessionKey" in message

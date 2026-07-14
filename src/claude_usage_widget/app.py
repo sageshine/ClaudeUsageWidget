@@ -1,17 +1,18 @@
 import threading
 import tkinter as tk
 from datetime import datetime
+from tkinter import messagebox
 
 from . import config as config_module
 from . import credential_store
-from .api_client import AuthError, fetch_usage_with_retry
+from .api_client import AuthError, TransientError, fetch_usage_with_retry
 from .autostart import disable_autostart, enable_autostart
 from .detail_panel import DetailPanel
 from .logging_setup import get_logger
 from .settings_ui import SettingsDialog
 from .tray import build_tray_icon, make_icon_image
 from .widget import CharacterWidget
-from .widget_state import Mood, resolve_state
+from .widget_state import Mood, WidgetState, compute_widget_state, resolve_state
 
 logger = get_logger()
 
@@ -31,6 +32,10 @@ class App:
         self.tray_icon = build_tray_icon(Mood.SETUP_NEEDED, self._toggle_widget, self._open_settings, self.quit)
 
         self._notified_auth_error = False
+        # Last successfully-fetched snapshot, used to keep showing real numbers (instead of a
+        # generic error line) in the detail panel when a subsequent refresh hits a transient
+        # network failure. See _resolve_state()/_fetch_result().
+        self._last_snapshot = None
         self._timer = None
         # Guards reads/writes of self._timer, self._refresh_generation and self._quitting:
         # _schedule_next_refresh() runs on whatever background thread is doing a refresh (the
@@ -47,8 +52,7 @@ class App:
         # fact.
         self._quitting = False
 
-        if self._first_run:
-            self._open_settings()
+        self._handle_first_run()
 
         # NOTE: this very first fetch runs synchronously, before root.mainloop() has started.
         # That's a deliberate exception to the "never fetch on the Tk thread" rule applied
@@ -66,10 +70,30 @@ class App:
         if not session_key or not org_id:
             return None
         try:
-            return fetch_usage_with_retry(session_key, org_id)
+            snapshot = fetch_usage_with_retry(session_key, org_id)
         except Exception as exc:  # AuthError 또는 재시도 소진 후 TransientError
             logger.error("usage fetch failed: %s", exc)
             return exc
+        self._last_snapshot = snapshot
+        return snapshot
+
+    def _resolve_state(self, result):
+        """resolve_state() plus "last known good" fallback: on a transient fetch failure (any
+        Exception other than AuthError -- i.e. the WARNING mood), if a previous fetch succeeded,
+        replace the generic error row with that snapshot's real numbers so the detail panel
+        keeps showing actual session/weekly percentages instead of just an error line. The
+        WARNING mood/color is kept as-is so the UI still signals something's wrong."""
+        show_credit = self.config.get("show_credit", False)
+        state = resolve_state(result, self.config["thresholds"], show_credit)
+        if isinstance(result, Exception) and not isinstance(result, AuthError) and self._last_snapshot is not None:
+            last_known = compute_widget_state(self._last_snapshot, self.config["thresholds"], show_credit)
+            state = WidgetState(
+                mood=state.mood,
+                headline_percent=last_known.headline_percent,
+                tooltip=f"⚠ 갱신 실패, 마지막 값: {last_known.tooltip}",
+                detail_rows=last_known.detail_rows,
+            )
+        return state
 
     def _refresh_and_reschedule(self):
         """Synchronous fetch + apply + reschedule. Only safe to call before the Tk event loop
@@ -77,7 +101,7 @@ class App:
         _refresh_and_reschedule_cancel_old()/_background_refresh() instead, which do the fetch
         on a background thread."""
         result = self._fetch_result()
-        state = resolve_state(result, self.config["thresholds"])
+        state = self._resolve_state(result)
         self._apply_state(state)
         self._schedule_next_refresh()
 
@@ -158,7 +182,7 @@ class App:
                 self._refresh_generation += 1
                 my_generation = self._refresh_generation
         result = self._fetch_result()
-        state = resolve_state(result, self.config["thresholds"])
+        state = self._resolve_state(result)
         interval = self.config.get("refresh_interval_seconds", 180)
         with self._timer_lock:
             if self._quitting or my_generation != self._refresh_generation:
@@ -204,6 +228,24 @@ class App:
         x = self.widget.top.winfo_x()
         y = self.widget.top.winfo_y() + CharacterWidget.SIZE
         self.detail_panel.show_at(x, y)
+
+    def _handle_first_run(self):
+        """On the very first launch (no config.json yet), show the mandatory unofficial-API
+        disclaimer before opening settings, so the user reads it before entering sessionKey."""
+        if not self._first_run:
+            return
+        self._show_first_run_disclaimer()
+        self._open_settings()
+
+    def _show_first_run_disclaimer(self):
+        messagebox.showwarning(
+            "알림",
+            "이 위젯은 Anthropic이 공식 지원하지 않는 claude.ai 비공식 API를 사용합니다.\n"
+            "Anthropic 쪽 구현이 바뀌면 사전 공지 없이 동작이 멈출 수 있습니다.\n\n"
+            "잠시 후 입력할 sessionKey 쿠키 값은 로그인 정보와 동일한 민감한 값입니다.\n"
+            "Windows 자격 증명 관리자(Credential Manager)에 암호화되어 저장되며, "
+            "claude.ai 외 다른 곳으로는 전송되지 않습니다.",
+        )
 
     def _open_settings(self):
         """May be invoked from the pystray background thread (tray menu item "설정") as well as

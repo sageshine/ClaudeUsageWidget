@@ -7,6 +7,8 @@ from .tetris_pieces import (
     ROWS,
     SHAPES,
     SHAPE_COLORS,
+    choose_placement,
+    choose_shape,
     choose_shape_and_placement,
     empty_board,
     filled_cell_count,
@@ -15,7 +17,8 @@ from .tetris_pieces import (
 from .widget_state import WidgetState
 
 _TRANSPARENT_KEY = "magenta"
-_BORDER_BASE = "#8B93A1"
+_BORDER_BASE = "#9CA3AF"
+_BORDER_THICKNESS = 3
 _CELL_SIZE = 12
 _BEVEL = 2
 _FALL_STEP_MS = 150
@@ -45,8 +48,8 @@ def _darken(hex_color, amount=0.45):
 
 
 class CharacterWidget:
-    WIDTH = (COLS + 2) * _CELL_SIZE
-    HEIGHT = (ROWS + 2) * _CELL_SIZE
+    WIDTH = COLS * _CELL_SIZE + 2 * _BORDER_THICKNESS
+    HEIGHT = ROWS * _CELL_SIZE + 2 * _BORDER_THICKNESS
 
     def __init__(self, root, initial_pos, on_move, on_right_click):
         self.top = tk.Toplevel(root)
@@ -66,19 +69,20 @@ class CharacterWidget:
         )
         self.canvas.pack()
 
-        self._draw_border()
-
         self._cell_items = []
         for row in range(ROWS):
             row_items = []
             for col in range(COLS):
-                x1 = (col + 1) * _CELL_SIZE
-                y1 = (row + 1) * _CELL_SIZE
+                x1 = _BORDER_THICKNESS + col * _CELL_SIZE
+                y1 = _BORDER_THICKNESS + row * _CELL_SIZE
                 row_items.append(self._create_beveled_cell(x1, y1))
             self._cell_items.append(row_items)
 
-        interior_x1, interior_y1 = _CELL_SIZE, _CELL_SIZE
-        interior_x2, interior_y2 = _CELL_SIZE + COLS * _CELL_SIZE, _CELL_SIZE + ROWS * _CELL_SIZE
+        self._draw_border()
+
+        interior_x1, interior_y1 = _BORDER_THICKNESS, _BORDER_THICKNESS
+        interior_x2 = _BORDER_THICKNESS + COLS * _CELL_SIZE
+        interior_y2 = _BORDER_THICKNESS + ROWS * _CELL_SIZE
         self._game_over_bg = self.canvas.create_rectangle(
             interior_x1, interior_y1, interior_x2, interior_y2,
             fill="#000000", stipple="gray50", outline="", state="hidden",
@@ -129,16 +133,13 @@ class CharacterWidget:
         return {"base": base, "highlight": highlight, "shadow": shadow}
 
     def _draw_border(self):
-        total_cols, total_rows = COLS + 2, ROWS + 2
-        for row in range(total_rows):
-            for col in range(total_cols):
-                if 0 < row < total_rows - 1 and 0 < col < total_cols - 1:
-                    continue  # interior -- not part of the border
-                x1, y1 = col * _CELL_SIZE, row * _CELL_SIZE
-                items = self._create_beveled_cell(x1, y1)
-                self._paint_beveled_cell(items, _BORDER_BASE)
-                for item_id in items.values():
-                    self.canvas.itemconfig(item_id, state="normal")
+        # 얇은 외곽선 하나로만 감싼다 -- 두꺼운 벽돌 타일 프레임 대신, 화면과
+        # 잘 어우러지는 가느다란 테두리.
+        inset = _BORDER_THICKNESS / 2
+        self.canvas.create_rectangle(
+            inset, inset, self.WIDTH - inset, self.HEIGHT - inset,
+            outline=_BORDER_BASE, width=_BORDER_THICKNESS,
+        )
 
     def _paint_beveled_cell(self, items, base_color):
         self.canvas.itemconfig(items["base"], fill=base_color)
@@ -170,14 +171,29 @@ class CharacterWidget:
     def _schedule_next_drop(self, delay_ms):
         self._drop_after_id = self.canvas.after(delay_ms, self._spawn_piece)
 
+    def _choose_decorative_placement(self):
+        """장식용(쌓이지 않는) 조각은 착지 정확도보다 모양의 다양성이 중요하다.
+        choose_shape_and_placement는 항상 가장 깊이 착지하는 조각을 고르는데,
+        빈 보드 근처에서는 이게 매번 I(막대) 하나로 수렴해버려 알록달록한 느낌이
+        안 난다. 그래서 장식용은 완전히 무작위로 모양을 고른 뒤, 그 모양이
+        어디든 놓일 수 있으면 그대로 쓴다."""
+        shape_id = choose_shape(self._rng)
+        placement = choose_placement(self._board, shape_id, self._rng)
+        if placement is not None:
+            col, landing_row = placement
+            return shape_id, col, landing_row
+        # 하필 고른 모양이 지금 보드엔 하나도 안 들어간다 -- 정확도 우선 방식으로
+        # 폴백해서 그래도 뭔가는 계속 떨어지도록 한다.
+        return choose_shape_and_placement(self._board, self._rng)
+
     def _spawn_piece(self):
-        result = choose_shape_and_placement(self._board, self._rng)
+        decorative = filled_cell_count(self._board) >= self._target
+        result = self._choose_decorative_placement() if decorative else choose_shape_and_placement(self._board, self._rng)
         if result is None:
             # 지금 당장 놓을 자리가 없다 -- 이번 낙하는 건너뛰고 다음 시도를 예약한다.
             self._schedule_next_drop(_SPAWN_GAP_MS)
             return
         shape_id, col, landing_row = result
-        decorative = filled_cell_count(self._board) >= self._target
         self._current_piece = {
             "shape_id": shape_id,
             "col": col,

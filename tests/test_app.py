@@ -250,6 +250,81 @@ def test_overlapping_refresh_generations_discard_stale_result(monkeypatch):
     assert len(_FakeTimer.instances) == 1
 
 
+def test_second_trigger_after_first_writes_timer_does_not_orphan_it(monkeypatch):
+    """Reproduces the gap a reviewer found in an earlier version of the fix: the freshness check
+    and the self._timer write used to happen in two separate lock acquisitions (the check in
+    _background_refresh(), then an unconditional write in a later call to
+    _schedule_next_refresh()). That left a window, between "check passed" and "Timer written",
+    during which a second trigger could run to completion -- fetch, pass its own check, and
+    write its own Timer into self._timer -- only to have the first (now-stale) refresh clobber
+    it moments later when it finally reached its own write. The clobbered Timer was left
+    orphaned: unreferenced by self._timer, never cancellable via quit(), but still alive and due
+    to fire later.
+
+    This test simulates that interleaving by hooking root.after() (the call _background_refresh()
+    makes right after its critical section, on the fresh path) to synchronously trigger and run
+    a second refresh to completion before control returns to the first. With the fix, the first
+    refresh's Timer is already created/assigned/started *before* root.after() is ever called, so
+    when the second refresh's _refresh_and_reschedule_cancel_old() runs, it finds a real,
+    still-pending Timer to cancel -- no orphan. Before the fix, this hook lands exactly in the
+    gap between the first refresh's check and its (unconditional) write, so the first refresh's
+    write would clobber the second refresh's Timer without ever cancelling it."""
+    instance = _make_refresh_test_instance()
+
+    _FakeThread.instances = []
+    _FakeTimer.instances = []
+    monkeypatch.setattr(app_module.threading, "Thread", _FakeThread)
+    monkeypatch.setattr(app_module.threading, "Timer", _FakeTimer)
+    monkeypatch.setattr(instance, "_fetch_result", lambda: None)
+
+    applied_states = []
+    triggered = {"done": False}
+
+    def after_hook(delay, func, *args):
+        # Apply this refresh's state first, same as the real (immediate) _FakeRoot.after would.
+        func(*args)
+        if triggered["done"]:
+            return
+        triggered["done"] = True
+        # Simulate a second trigger (e.g. another manual-refresh click) arriving and running to
+        # completion while the first refresh is "on its way" to reschedule.
+        instance._refresh_and_reschedule_cancel_old()
+        second_thread = _FakeThread.instances[-1]
+        second_thread.target(*second_thread.args)
+
+    instance._apply_state = lambda state: applied_states.append(state)
+    instance.root = type("_HookRoot", (), {"after": staticmethod(after_hook)})()
+
+    # Trigger #1 (generation 1).
+    instance._refresh_and_reschedule_cancel_old()
+    assert instance._refresh_generation == 1
+    first_thread = _FakeThread.instances[0]
+
+    # Run #1. Its root.after() call (see after_hook above) fires the second trigger and runs it
+    # to completion before #1's own call stack unwinds.
+    first_thread.target(*first_thread.args)
+
+    assert instance._refresh_generation == 2
+    assert len(_FakeTimer.instances) == 2
+    first_timer, second_timer = _FakeTimer.instances
+
+    # The second (newer) refresh must own self._timer...
+    assert instance._timer is second_timer
+    # ...and the first refresh's Timer must have been properly cancelled by the second trigger's
+    # cancel-old logic, not silently orphaned (unreferenced and still alive).
+    assert first_timer.cancelled is True
+    assert second_timer.cancelled is False
+
+    # No Timer anywhere is both unreferenced by self._timer AND still uncancelled.
+    for timer in _FakeTimer.instances:
+        assert timer is instance._timer or timer.cancelled
+
+    # Both refreshes' results were applied (each was still current at the moment its own
+    # root.after() fired) -- that's expected and fine; the bug this test targets is about Timer
+    # bookkeeping, not about suppressing UI updates.
+    assert len(applied_states) == 2
+
+
 def test_background_refresh_discarded_after_quit(monkeypatch):
     """A _background_refresh() that finishes fetching after quit() has already run must not
     touch self.root (which quit() is in the process of destroying) or schedule a new Timer."""

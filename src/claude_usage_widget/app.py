@@ -102,6 +102,11 @@ class App:
         threading.Thread(target=self._background_refresh, args=(my_generation,), daemon=True).start()
 
     def _schedule_next_refresh(self):
+        """Only used by _refresh_and_reschedule()'s one-time synchronous startup call (see its
+        docstring) -- at that point nothing else can be concurrently touching self._timer, so a
+        plain unconditional write is safe. _background_refresh() does NOT call this: it inlines
+        the same create/assign/start sequence into its own freshness-check lock so the two
+        happen atomically -- see its docstring for why that distinction matters."""
         interval = self.config.get("refresh_interval_seconds", 180)
         timer = threading.Timer(interval, self._background_refresh)
         timer.daemon = True
@@ -123,31 +128,52 @@ class App:
         calls from running concurrently on different threads (e.g. the user clicks manual
         refresh twice, or saves settings while a manual refresh is still retrying via
         fetch_usage_with_retry's exponential backoff -- which can take up to ~30s). Each one
-        independently fetches, then would independently call _schedule_next_refresh(), and
-        whichever's Timer loses that overwrite race becomes an orphaned, uncancellable Timer
-        that still fires later. To prevent that, every trigger of a refresh -- the periodic
-        Timer firing (my_generation left as None here, so it self-assigns the next generation
-        right below) and _refresh_and_reschedule_cancel_old() (which pre-assigns my_generation
-        before spawning this thread) -- gets its own generation number. Only the refresh holding
-        the *current* generation number when its fetch completes is allowed to apply its result
-        and reschedule; any older, superseded refresh silently discards its result instead. This
-        also doubles as the quit() guard: quit() bumps nothing but sets self._quitting, checked
-        in the same locked block, so a refresh that finishes fetching after quit() never touches
-        self.root (which quit() is busy destroying)."""
+        independently fetches, then would independently want to reschedule, and whichever's
+        Timer loses that overwrite race becomes an orphaned, uncancellable Timer that still
+        fires later. To prevent that, every trigger of a refresh -- the periodic Timer firing
+        (my_generation left as None here, so it self-assigns the next generation right below)
+        and _refresh_and_reschedule_cancel_old() (which pre-assigns my_generation before
+        spawning this thread) -- gets its own generation number. Only the refresh holding the
+        *current* generation number when its fetch completes is allowed to create/start the next
+        Timer; any older, superseded refresh silently discards its result instead.
+
+        The freshness check and the self._timer write below happen inside a SINGLE
+        `with self._timer_lock:` block -- this used to be two separate lock acquisitions (a
+        check here, then an unconditional write in a later call to _schedule_next_refresh()),
+        which left a check-then-act gap: a refresh could pass its freshness check, then -- before
+        it reached the write -- get superseded by a newer refresh that ran to completion and
+        wrote *its* Timer into self._timer, only to have the original refresh's now-stale write
+        clobber it moments later, orphaning the newer Timer (unreferenced by self._timer, never
+        cancellable via quit(), but still alive and due to fire later). Doing the check and the
+        write in one uninterrupted critical section closes that gap: once a refresh has
+        confirmed (under the lock) that it's still current, nothing can supersede it before its
+        Timer is created, assigned, and started, because that all happens before the lock is
+        released.
+
+        This also doubles as the quit() guard: quit() bumps nothing but sets self._quitting,
+        checked in the same locked block, so a refresh that finishes fetching after quit() never
+        creates a new Timer and never touches self.root (which quit() is busy destroying)."""
         if my_generation is None:
             with self._timer_lock:
                 self._refresh_generation += 1
                 my_generation = self._refresh_generation
         result = self._fetch_result()
         state = resolve_state(result, self.config["thresholds"])
+        interval = self.config.get("refresh_interval_seconds", 180)
         with self._timer_lock:
             if self._quitting or my_generation != self._refresh_generation:
                 # Superseded by a newer refresh (or the app is shutting down) -- discard this
-                # result silently. The newer refresh (or nothing, if quitting) owns applying
-                # state and rescheduling from here.
+                # result silently, without creating a Timer or touching self.root. The newer
+                # refresh (or nothing, if quitting) owns applying state and rescheduling.
                 return
+            timer = threading.Timer(interval, self._background_refresh)
+            timer.daemon = True
+            self._timer = timer
+            timer.start()
+        # Applying the UI state doesn't need the lock (root.after is thread-safe to call from
+        # any thread) and only ever runs for the refresh that just atomically won the section
+        # above, so it's fine -- and simpler -- to do it after releasing the lock.
         self.root.after(0, self._apply_state, state)
-        self._schedule_next_refresh()
 
     def _manual_refresh(self):
         self._refresh_and_reschedule_cancel_old()

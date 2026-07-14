@@ -42,9 +42,6 @@ class CharacterWidget:
         self.canvas.bind("<Enter>", self._show_tooltip)
         self.canvas.bind("<Leave>", self._hide_tooltip)
 
-        # Ensure top window is ready to receive events
-        self.top.update()
-
     def apply_state(self, state: WidgetState) -> None:
         self.canvas.itemconfig(self._circle, fill=MOOD_COLORS[state.mood])
         self.canvas.itemconfig(self._face, text=MOOD_FACES[state.mood])

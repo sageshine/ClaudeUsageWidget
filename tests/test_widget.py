@@ -46,6 +46,8 @@ def test_right_click_invokes_callback(root):
     clicks = []
     widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: clicks.append(1))
 
+    # Ensure Toplevel is ready for event processing before generating synthetic events
+    widget.top.update()
     widget.canvas.event_generate("<Button-3>")
     root.update()
 

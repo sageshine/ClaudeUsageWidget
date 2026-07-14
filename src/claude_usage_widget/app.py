@@ -32,11 +32,20 @@ class App:
 
         self._notified_auth_error = False
         self._timer = None
-        # Guards reads/writes of self._timer: _schedule_next_refresh() runs on whatever
-        # background thread is doing a refresh (the periodic Timer's own thread, or a thread
-        # spawned by _refresh_and_reschedule_cancel_old()), while _refresh_and_reschedule_cancel_old()
-        # and quit() can read/cancel it from the Tk main thread at the same time.
+        # Guards reads/writes of self._timer, self._refresh_generation and self._quitting:
+        # _schedule_next_refresh() runs on whatever background thread is doing a refresh (the
+        # periodic Timer's own thread, or a thread spawned by
+        # _refresh_and_reschedule_cancel_old()), while _refresh_and_reschedule_cancel_old() and
+        # quit() can read/cancel/mutate them from the Tk main thread at the same time.
         self._timer_lock = threading.Lock()
+        # Generation counter ("epoch") used to detect and discard stale results from overlapping
+        # _background_refresh() calls -- see _background_refresh()'s docstring for the full
+        # explanation of the race this prevents.
+        self._refresh_generation = 0
+        # Set True by quit(); lets an in-flight _background_refresh() notice the app is shutting
+        # down and avoid touching self.root (which quit() schedules for destruction) after the
+        # fact.
+        self._quitting = False
 
         if self._first_run:
             self._open_settings()
@@ -76,28 +85,67 @@ class App:
         """Cancel any pending periodic timer and kick off a fresh refresh on a background
         thread. Safe to call from the Tk main thread (manual refresh button, settings dialog
         save) since the actual network fetch -- which can sleep for several seconds across
-        fetch_usage_with_retry's exponential backoff -- never runs on the calling thread."""
+        fetch_usage_with_retry's exponential backoff -- never runs on the calling thread.
+
+        Only cancels the *pending, not-yet-fired* periodic timer, so a tick that's about to fire
+        doesn't also start a redundant fetch. It does NOT try to stop an already-in-flight fetch
+        thread (there's no safe way to abort a thread mid-fetch) -- instead it bumps
+        self._refresh_generation so that if an older in-flight _background_refresh() finishes
+        later, it recognizes it's been superseded and discards its own result. See
+        _background_refresh()'s docstring for the full race this prevents."""
         with self._timer_lock:
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None
-        threading.Thread(target=self._background_refresh, daemon=True).start()
+            self._refresh_generation += 1
+            my_generation = self._refresh_generation
+        threading.Thread(target=self._background_refresh, args=(my_generation,), daemon=True).start()
 
     def _schedule_next_refresh(self):
         interval = self.config.get("refresh_interval_seconds", 180)
         timer = threading.Timer(interval, self._background_refresh)
         timer.daemon = True
         with self._timer_lock:
+            if self._quitting:
+                # quit() already ran (or is running) -- don't leave a fresh Timer alive after
+                # shutdown; it would just wake up later to do a pointless fetch.
+                return
             self._timer = timer
         timer.start()
 
-    def _background_refresh(self):
+    def _background_refresh(self, my_generation=None):
         """Runs on a background thread (either the periodic Timer's own thread, or a thread
         spawned by _refresh_and_reschedule_cancel_old()). Performs the network fetch off the Tk
         main thread, marshals the resulting state back via root.after, and reschedules the next
-        periodic tick."""
+        periodic tick.
+
+        Overlapping-refresh race this guards against: nothing stops two _background_refresh()
+        calls from running concurrently on different threads (e.g. the user clicks manual
+        refresh twice, or saves settings while a manual refresh is still retrying via
+        fetch_usage_with_retry's exponential backoff -- which can take up to ~30s). Each one
+        independently fetches, then would independently call _schedule_next_refresh(), and
+        whichever's Timer loses that overwrite race becomes an orphaned, uncancellable Timer
+        that still fires later. To prevent that, every trigger of a refresh -- the periodic
+        Timer firing (my_generation left as None here, so it self-assigns the next generation
+        right below) and _refresh_and_reschedule_cancel_old() (which pre-assigns my_generation
+        before spawning this thread) -- gets its own generation number. Only the refresh holding
+        the *current* generation number when its fetch completes is allowed to apply its result
+        and reschedule; any older, superseded refresh silently discards its result instead. This
+        also doubles as the quit() guard: quit() bumps nothing but sets self._quitting, checked
+        in the same locked block, so a refresh that finishes fetching after quit() never touches
+        self.root (which quit() is busy destroying)."""
+        if my_generation is None:
+            with self._timer_lock:
+                self._refresh_generation += 1
+                my_generation = self._refresh_generation
         result = self._fetch_result()
         state = resolve_state(result, self.config["thresholds"])
+        with self._timer_lock:
+            if self._quitting or my_generation != self._refresh_generation:
+                # Superseded by a newer refresh (or the app is shutting down) -- discard this
+                # result silently. The newer refresh (or nothing, if quitting) owns applying
+                # state and rescheduling from here.
+                return
         self.root.after(0, self._apply_state, state)
         self._schedule_next_refresh()
 
@@ -170,6 +218,7 @@ class App:
 
     def quit(self):
         with self._timer_lock:
+            self._quitting = True
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None

@@ -1,3 +1,5 @@
+import threading
+
 from claude_usage_widget import app as app_module
 from claude_usage_widget import config as config_module
 from claude_usage_widget.widget_state import Mood, WidgetState
@@ -147,3 +149,122 @@ def test_apply_state_notifies_once_on_auth_error_then_resets():
     instance._apply_state(auth_error_state)
     assert len(instance.tray_icon.notify_calls) == 2
     assert instance._notified_auth_error is True
+
+
+class _FakeRoot:
+    """Stand-in for the real Tk root: .after() just calls the function immediately, since
+    there's no real event loop pumping in these tests."""
+
+    def after(self, delay, func, *args):
+        func(*args)
+
+
+class _FakeThread:
+    """Stand-in for threading.Thread that records what it would have run instead of actually
+    starting a background thread -- lets tests drive _background_refresh() invocations
+    synchronously, in whatever order they want, to simulate overlapping refreshes without any
+    real threads or timing."""
+
+    instances = []
+
+    def __init__(self, target=None, args=(), daemon=None):
+        self.target = target
+        self.args = args
+        _FakeThread.instances.append(self)
+
+    def start(self):
+        pass  # deliberately does not run target; the test calls it manually
+
+
+class _FakeTimer:
+    """Stand-in for threading.Timer that records creation (so tests can assert whether a new
+    Timer was -- or wasn't -- scheduled) without actually waiting or firing."""
+
+    instances = []
+
+    def __init__(self, interval, target, args=()):
+        self.interval = interval
+        self.target = target
+        self.args = args
+        self.cancelled = False
+        _FakeTimer.instances.append(self)
+
+    def start(self):
+        pass
+
+    def cancel(self):
+        self.cancelled = True
+
+
+def _make_refresh_test_instance():
+    instance = app_module.App.__new__(app_module.App)
+    instance.config = {"thresholds": {"warning": 50, "danger": 80}, "refresh_interval_seconds": 180}
+    instance._timer = None
+    instance._timer_lock = threading.Lock()
+    instance._refresh_generation = 0
+    instance._quitting = False
+    instance.widget = _FakeWidget()
+    instance.detail_panel = _FakeDetailPanel()
+    instance.tray_icon = _FakeTrayIcon()
+    instance._notified_auth_error = False
+    instance.root = _FakeRoot()
+    return instance
+
+
+def test_overlapping_refresh_generations_discard_stale_result(monkeypatch):
+    """Two refreshes triggered back-to-back (e.g. two manual-refresh clicks, or a manual refresh
+    followed by a settings save) while the first is still "in flight" must not both win: only
+    the latest-triggered refresh's result should be applied and only it should reschedule the
+    next periodic timer. The older, superseded refresh must silently discard its result."""
+    instance = _make_refresh_test_instance()
+
+    _FakeThread.instances = []
+    _FakeTimer.instances = []
+    monkeypatch.setattr(app_module.threading, "Thread", _FakeThread)
+    monkeypatch.setattr(app_module.threading, "Timer", _FakeTimer)
+    monkeypatch.setattr(instance, "_fetch_result", lambda: None)
+
+    applied_states = []
+    monkeypatch.setattr(instance, "_apply_state", lambda state: applied_states.append(state))
+
+    # Trigger #1 (e.g. first click of 새로고침) -> generation 1. Thread doesn't actually run yet.
+    instance._refresh_and_reschedule_cancel_old()
+    assert instance._refresh_generation == 1
+    gen1_thread = _FakeThread.instances[0]
+
+    # Trigger #2 (e.g. a second click, or settings save, while #1 is still "mid-fetch") ->
+    # generation 2, and cancels the (still-None) pending periodic timer.
+    instance._refresh_and_reschedule_cancel_old()
+    assert instance._refresh_generation == 2
+    gen2_thread = _FakeThread.instances[1]
+
+    # Simulate #2's fetch completing first (it's the latest generation).
+    gen2_thread.target(*gen2_thread.args)
+    assert len(applied_states) == 1
+    assert len(_FakeTimer.instances) == 1  # only #2 rescheduled
+
+    # Simulate #1's fetch completing afterwards -- it's now stale (generation 1 != current 2)
+    # and must be discarded silently: no extra _apply_state call, no extra Timer created.
+    gen1_thread.target(*gen1_thread.args)
+    assert len(applied_states) == 1
+    assert len(_FakeTimer.instances) == 1
+
+
+def test_background_refresh_discarded_after_quit(monkeypatch):
+    """A _background_refresh() that finishes fetching after quit() has already run must not
+    touch self.root (which quit() is in the process of destroying) or schedule a new Timer."""
+    instance = _make_refresh_test_instance()
+    instance._quitting = True
+    instance._refresh_generation = 5
+
+    _FakeTimer.instances = []
+    monkeypatch.setattr(app_module.threading, "Timer", _FakeTimer)
+    monkeypatch.setattr(instance, "_fetch_result", lambda: None)
+
+    applied_states = []
+    monkeypatch.setattr(instance, "_apply_state", lambda state: applied_states.append(state))
+
+    instance._background_refresh(my_generation=5)  # matches current generation, but quitting
+
+    assert applied_states == []
+    assert _FakeTimer.instances == []

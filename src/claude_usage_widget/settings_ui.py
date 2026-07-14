@@ -1,6 +1,9 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+WIDGET_STYLE_LABELS = {"tetris": "테트리스", "hourglass": "모래시계"}
+_WIDGET_STYLE_BY_LABEL = {label: value for value, label in WIDGET_STYLE_LABELS.items()}
+
 
 class SettingsDialog:
     def __init__(self, root, config: dict, on_save):
@@ -16,6 +19,8 @@ class SettingsDialog:
         self.danger_var = tk.IntVar(value=config["thresholds"]["danger"])
         self.credit_var = tk.BooleanVar(value=config["show_credit"])
         self.autostart_var = tk.BooleanVar(value=config["autostart_enabled"])
+        widget_style = config.get("widget_style", "tetris")
+        self.widget_style_var = tk.StringVar(value=WIDGET_STYLE_LABELS.get(widget_style, WIDGET_STYLE_LABELS["tetris"]))
 
         self._build_form()
         self.top.withdraw()
@@ -37,10 +42,19 @@ class SettingsDialog:
         ttk.Label(self.top, text="위험 임계값(%)").grid(row=4, column=0, sticky="w", **pad)
         ttk.Spinbox(self.top, from_=1, to=100, textvariable=self.danger_var, width=10).grid(row=4, column=1, sticky="w", **pad)
 
-        ttk.Checkbutton(self.top, text="사용 크레딧 표시", variable=self.credit_var).grid(row=5, column=0, columnspan=2, sticky="w", **pad)
-        ttk.Checkbutton(self.top, text="PC 시작 시 자동 실행", variable=self.autostart_var).grid(row=6, column=0, columnspan=2, sticky="w", **pad)
+        ttk.Label(self.top, text="위젯 모양").grid(row=5, column=0, sticky="w", **pad)
+        ttk.Combobox(
+            self.top,
+            textvariable=self.widget_style_var,
+            values=list(WIDGET_STYLE_LABELS.values()),
+            state="readonly",
+            width=12,
+        ).grid(row=5, column=1, sticky="w", **pad)
 
-        ttk.Button(self.top, text="저장", command=self._save).grid(row=7, column=0, columnspan=2, pady=10)
+        ttk.Checkbutton(self.top, text="사용 크레딧 표시", variable=self.credit_var).grid(row=6, column=0, columnspan=2, sticky="w", **pad)
+        ttk.Checkbutton(self.top, text="PC 시작 시 자동 실행", variable=self.autostart_var).grid(row=7, column=0, columnspan=2, sticky="w", **pad)
+
+        ttk.Button(self.top, text="저장", command=self._save).grid(row=8, column=0, columnspan=2, pady=10)
 
     def show(self) -> None:
         self.top.deiconify()
@@ -69,6 +83,7 @@ class SettingsDialog:
             "thresholds": {"warning": warning, "danger": danger},
             "show_credit": self.credit_var.get(),
             "autostart_enabled": self.autostart_var.get(),
+            "widget_style": _WIDGET_STYLE_BY_LABEL.get(self.widget_style_var.get(), "tetris"),
         }
         self._on_save(result)
         self.top.withdraw()

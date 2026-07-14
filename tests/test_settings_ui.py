@@ -87,3 +87,19 @@ def test_enforces_minimum_refresh_interval_of_60_seconds(root, monkeypatch):
 
     assert saved[0]["refresh_interval_seconds"] == 60
     dialog.top.destroy()
+
+
+def test_widget_style_dropdown_reflects_config_and_saves_selection(root, monkeypatch):
+    monkeypatch.setattr(settings_ui.messagebox, "showerror", lambda *a, **k: None)
+    saved = []
+    config = dict(DEFAULT_CONFIG)
+    config["widget_style"] = "hourglass"
+    dialog = settings_ui.SettingsDialog(root, config, on_save=saved.append)
+
+    assert dialog.widget_style_var.get() == settings_ui.WIDGET_STYLE_LABELS["hourglass"]
+
+    dialog.widget_style_var.set(settings_ui.WIDGET_STYLE_LABELS["tetris"])
+    dialog._save()
+
+    assert saved[0]["widget_style"] == "tetris"
+    dialog.top.destroy()

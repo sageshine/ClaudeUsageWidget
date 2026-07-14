@@ -12,6 +12,20 @@ class _FakeWidget:
         pass
 
 
+class _FakeTop:
+    def __init__(self):
+        self.destroyed = False
+
+    def winfo_x(self):
+        return 100
+
+    def winfo_y(self):
+        return 200
+
+    def destroy(self):
+        self.destroyed = True
+
+
 class _FakeDetailPanel:
     def render(self, rows, updated_text):
         pass
@@ -47,6 +61,7 @@ def test_on_settings_saved_persists_config_and_credentials(tmp_path, monkeypatch
         "thresholds": {"warning": 50, "danger": 80},
         "show_credit": True,
         "autostart_enabled": True,
+        "widget_style": "tetris",
     })
 
     assert saved["session_key"] == "secret-token"
@@ -83,11 +98,87 @@ def test_on_settings_saved_disables_autostart_when_unchecked(tmp_path, monkeypat
         "thresholds": {"warning": 50, "danger": 80},
         "show_credit": False,
         "autostart_enabled": False,
+        "widget_style": "tetris",
     })
 
     assert saved["autostart"] == "disabled"
     # session_key was None, so save_session_key must not have been called at all.
     assert save_session_key_calls == []
+
+
+def test_on_settings_saved_swaps_widget_when_style_changes(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(app_module.credential_store, "save_session_key", lambda v: None)
+    monkeypatch.setattr(app_module, "enable_autostart", lambda: None)
+    monkeypatch.setattr(app_module, "disable_autostart", lambda: None)
+
+    instance = app_module.App.__new__(app_module.App)
+    instance.config = config_module.load_config()
+    instance.config["widget_style"] = "tetris"
+    instance._timer = None
+    instance._notified_auth_error = False
+    instance._refresh_and_reschedule_cancel_old = lambda: None
+
+    old_widget = _FakeWidget()
+    old_widget.top = _FakeTop()
+    instance.widget = old_widget
+
+    built_positions = []
+
+    def fake_build_widget(pos):
+        built_positions.append(pos)
+        new_widget = _FakeWidget()
+        new_widget.top = _FakeTop()
+        return new_widget
+
+    instance._build_widget = fake_build_widget
+
+    instance._on_settings_saved({
+        "session_key": None,
+        "org_id": "org-42",
+        "refresh_interval_seconds": 120,
+        "thresholds": {"warning": 50, "danger": 80},
+        "show_credit": False,
+        "autostart_enabled": False,
+        "widget_style": "hourglass",
+    })
+
+    assert instance.config["widget_style"] == "hourglass"
+    assert built_positions == [(100, 200)]
+    assert instance.widget is not old_widget
+    assert old_widget.top.destroyed is True
+
+
+def test_on_settings_saved_does_not_swap_widget_when_style_unchanged(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(app_module.credential_store, "save_session_key", lambda v: None)
+    monkeypatch.setattr(app_module, "enable_autostart", lambda: None)
+    monkeypatch.setattr(app_module, "disable_autostart", lambda: None)
+
+    instance = app_module.App.__new__(app_module.App)
+    instance.config = config_module.load_config()
+    instance.config["widget_style"] = "tetris"
+    instance._timer = None
+    instance._notified_auth_error = False
+    instance._refresh_and_reschedule_cancel_old = lambda: None
+
+    old_widget = _FakeWidget()
+    old_widget.top = _FakeTop()
+    instance.widget = old_widget
+    instance._build_widget = lambda pos: (_ for _ in ()).throw(AssertionError("should not rebuild"))
+
+    instance._on_settings_saved({
+        "session_key": None,
+        "org_id": "org-42",
+        "refresh_interval_seconds": 120,
+        "thresholds": {"warning": 50, "danger": 80},
+        "show_credit": False,
+        "autostart_enabled": False,
+        "widget_style": "tetris",
+    })
+
+    assert instance.widget is old_widget
+    assert old_widget.top.destroyed is False
 
 
 def test_fetch_result_returns_none_when_credentials_missing(tmp_path, monkeypatch):

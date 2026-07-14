@@ -8,6 +8,7 @@ from . import credential_store
 from .api_client import AuthError, TransientError, fetch_usage_with_retry
 from .autostart import disable_autostart, enable_autostart
 from .detail_panel import DetailPanel
+from .hourglass_widget import HourglassWidget
 from .logging_setup import get_logger
 from .settings_ui import SettingsDialog
 from .tray import build_tray_icon, make_icon_image
@@ -15,6 +16,8 @@ from .widget import CharacterWidget
 from .widget_state import Mood, WidgetState, compute_widget_state, resolve_state
 
 logger = get_logger()
+
+_WIDGET_CLASSES = {"tetris": CharacterWidget, "hourglass": HourglassWidget}
 
 
 class App:
@@ -26,7 +29,7 @@ class App:
         self.root.withdraw()
 
         pos = tuple(self.config.get("widget_position") or [100, 100])
-        self.widget = CharacterWidget(self.root, pos, self._on_widget_move, self._on_widget_right_click)
+        self.widget = self._build_widget(pos)
         self.detail_panel = DetailPanel(self.root, self._manual_refresh, self._open_settings, self.quit)
         self.settings_dialog = SettingsDialog(self.root, self.config, self._on_settings_saved)
         self.tray_icon = build_tray_icon(Mood.SETUP_NEEDED, self._toggle_widget, self._open_settings, self.quit)
@@ -63,6 +66,10 @@ class App:
         # one-time startup delay that's already bounded by fetch_usage_with_retry's own
         # retry/backoff ceiling. Kept as documented tech debt rather than changed.
         self._refresh_and_reschedule()
+
+    def _build_widget(self, pos):
+        widget_cls = _WIDGET_CLASSES.get(self.config.get("widget_style", "tetris"), CharacterWidget)
+        return widget_cls(self.root, pos, self._on_widget_move, self._on_widget_right_click)
 
     def _fetch_result(self):
         session_key = credential_store.load_session_key()
@@ -226,7 +233,7 @@ class App:
 
     def _on_widget_right_click(self):
         x = self.widget.top.winfo_x()
-        y = self.widget.top.winfo_y() + CharacterWidget.HEIGHT
+        y = self.widget.top.winfo_y() + self.widget.HEIGHT
         self.detail_panel.show_at(x, y)
 
     def _handle_first_run(self):
@@ -257,11 +264,14 @@ class App:
     def _on_settings_saved(self, values):
         if values["session_key"]:
             credential_store.save_session_key(values["session_key"])
+        style_changed = values["widget_style"] != self.config.get("widget_style", "tetris")
+
         self.config["org_id"] = values["org_id"]
         self.config["refresh_interval_seconds"] = values["refresh_interval_seconds"]
         self.config["thresholds"] = values["thresholds"]
         self.config["show_credit"] = values["show_credit"]
         self.config["autostart_enabled"] = values["autostart_enabled"]
+        self.config["widget_style"] = values["widget_style"]
         config_module.save_config(self.config)
 
         if values["autostart_enabled"]:
@@ -269,7 +279,18 @@ class App:
         else:
             disable_autostart()
 
+        if style_changed:
+            self._swap_widget()
+
         self._refresh_and_reschedule_cancel_old()
+
+    def _swap_widget(self):
+        """설정에서 위젯 모양을 바꾸면, 같은 위치에 새 위젯을 만들고 기존 것은
+        없앤다. 다음 새로고침이 새 위젯에 바로 상태를 반영해준다."""
+        pos = (self.widget.top.winfo_x(), self.widget.top.winfo_y())
+        old_widget = self.widget
+        self.widget = self._build_widget(pos)
+        old_widget.top.destroy()
 
     def _toggle_widget(self):
         """Invoked from the pystray background thread (tray menu item "위젯 표시/숨김"). Marshal

@@ -7,6 +7,7 @@ from claude_usage_widget.tetris_pieces import (
     TOTAL_CELLS,
     choose_placement,
     choose_shape,
+    choose_shape_and_placement,
     empty_board,
     filled_cell_count,
     find_landing_row,
@@ -93,6 +94,60 @@ def test_choose_shape_returns_a_valid_shape_id():
     rng = random.Random(0)
     for _ in range(20):
         assert choose_shape(rng) in SHAPES
+
+
+def test_choose_shape_and_placement_on_empty_board_returns_valid_tuple():
+    rng = random.Random(1)
+    result = choose_shape_and_placement(empty_board(), rng)
+    assert result is not None
+    shape_id, col, landing_row = result
+    assert shape_id in SHAPES
+    assert isinstance(col, int)
+    assert isinstance(landing_row, int)
+
+
+def test_choose_shape_and_placement_falls_back_to_narrower_shape_when_wider_ones_dont_fit():
+    # Fill column 2 solidly from row 0 to the floor. find_landing_row rejects a
+    # placement the instant one of its cells maps onto a column whose first_filled
+    # row is 0 (offset_limit = 0 - 1 - dr, which is negative for every dr >= 0).
+    #
+    # I has width 4, so its only candidate start_col is 0, spanning columns 0-3 --
+    # which includes column 2, so I can never land.
+    # T, S, Z, J, L all have width 3, with candidate start_col in {0, 1, 2}, spanning
+    # columns {0,1,2}, {1,2,3}, {2,3,4} respectively -- every one of those spans
+    # includes column 2. Each of these five shapes also has at least one cell in
+    # every column of its span (verified against the SHAPES table), so column 2
+    # blocks all of their candidate columns too.
+    # Only O (width 2) has candidate start_cols {0,1,2,3}; start_col 0 (cols 0-1) and
+    # start_col 3 (cols 3-4) never touch column 2, so O alone can still be placed.
+    #
+    # A single "pick one random shape and give up" attempt would fail ~6 times out of
+    # 7. The new function must keep trying until it finds O, for any shuffle order.
+    grid = [[None] * COLS for _ in range(ROWS)]
+    for row in range(ROWS):
+        grid[row][2] = "I"
+    board = tuple(tuple(row) for row in grid)
+
+    for seed in range(30):
+        rng = random.Random(seed)
+        result = choose_shape_and_placement(board, rng)
+        assert result is not None
+        shape_id, col, landing_row = result
+        assert shape_id == "O"
+        assert col in (0, 3)
+        assert landing_row == ROWS - 2
+
+
+def test_choose_shape_and_placement_returns_none_when_board_fully_blocked():
+    # Top row filled across every column tops the board out for every shape (every
+    # shape has a cell with dr == 0), mirroring
+    # test_choose_placement_returns_none_when_no_column_fits.
+    grid = [[None] * COLS for _ in range(ROWS)]
+    for col in range(COLS):
+        grid[0][col] = "I"
+    board = tuple(tuple(row) for row in grid)
+    rng = random.Random(0)
+    assert choose_shape_and_placement(board, rng) is None
 
 
 def test_find_landing_row_t_piece_lands_on_staggered_stack_with_left_and_right_columns_filled():

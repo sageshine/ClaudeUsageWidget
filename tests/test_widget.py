@@ -1,3 +1,4 @@
+import random
 from types import SimpleNamespace
 import tkinter as tk
 
@@ -126,6 +127,63 @@ def test_choose_placement_failure_does_not_crash_or_spawn_piece(root):
     # GAME OVER visibility must be driven only by headline_percent, never by the board
     # being unable to reach its target.
     assert widget.canvas.itemcget(widget._game_over_text, "state") == "hidden"
+    widget.top.destroy()
+
+
+def test_fill_instantly_reaches_target_when_only_narrow_shapes_fit(root):
+    widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
+
+    # Block column 2 top-to-bottom so I (width 4) and every width-3 shape
+    # (T, S, Z, J, L) can never land anywhere on the board -- only O (width 2) can
+    # still be placed, in the untouched column pairs (0,1) and (3,4). This mirrors
+    # the regression the reviewer found: picking a single random shape and giving up
+    # when it doesn't fit stalls the fill well before the target; trying multiple
+    # shapes must not.
+    grid = [[None] * COLS for _ in range(ROWS)]
+    for row in range(ROWS):
+        grid[row][2] = "I"
+    blocked_board = tuple(tuple(row) for row in grid)
+
+    # Target 35 cells (70%) is reachable using O alone: up to 40 non-blocked cells
+    # remain (columns 0, 1, 3, 4 across all 10 rows).
+    for seed in range(10):
+        widget._board = blocked_board
+        widget._rng = random.Random(seed)
+        widget._fill_instantly(35)
+        assert filled_cell_count(widget._board) >= 35
+
+    widget.top.destroy()
+
+
+def test_spawn_next_piece_succeeds_when_only_narrow_shapes_fit(root):
+    widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
+    widget._initialized = True
+
+    grid = [[None] * COLS for _ in range(ROWS)]
+    for row in range(ROWS):
+        grid[row][2] = "I"
+    blocked_board = tuple(tuple(row) for row in grid)
+
+    for seed in range(10):
+        widget._board = blocked_board
+        widget._current_piece = None
+        if widget._animation_after_id is not None:
+            widget.canvas.after_cancel(widget._animation_after_id)
+            widget._animation_after_id = None
+        widget._rng = random.Random(seed)
+
+        # target(30, i.e. 60%) exceeds the current filled count (10), so apply_state
+        # takes the "increase" path and spawns a piece via choose_shape_and_placement.
+        # Under the old "one shape, give up" logic this would fail on most seeds even
+        # though O always fits; it must now succeed every time.
+        widget.apply_state(_state(60), THRESHOLDS)
+
+        assert widget._current_piece is not None
+        assert widget._current_piece["shape_id"] == "O"
+
+    if widget._animation_after_id is not None:
+        widget.canvas.after_cancel(widget._animation_after_id)
+        widget._animation_after_id = None
     widget.top.destroy()
 
 

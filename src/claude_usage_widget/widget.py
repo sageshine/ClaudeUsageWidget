@@ -7,8 +7,7 @@ from .tetris_pieces import (
     ROWS,
     SHAPES,
     SHAPE_COLORS,
-    choose_placement,
-    choose_shape,
+    choose_shape_and_placement,
     empty_board,
     filled_cell_count,
     place_piece,
@@ -123,21 +122,19 @@ class CharacterWidget:
 
     def _fill_instantly(self, target):
         while filled_cell_count(self._board) < target:
-            shape_id = choose_shape(self._rng)
-            placement = choose_placement(self._board, shape_id, self._rng)
-            if placement is None:
+            result = choose_shape_and_placement(self._board, self._rng)
+            if result is None:
                 break
-            col, landing_row = placement
+            shape_id, col, landing_row = result
             self._board = place_piece(self._board, shape_id, col, landing_row)
 
     def _spawn_next_piece(self):
         if filled_cell_count(self._board) >= self._pending_target:
             return
-        shape_id = choose_shape(self._rng)
-        placement = choose_placement(self._board, shape_id, self._rng)
-        if placement is None:
+        result = choose_shape_and_placement(self._board, self._rng)
+        if result is None:
             return
-        col, landing_row = placement
+        shape_id, col, landing_row = result
         self._current_piece = {"shape_id": shape_id, "col": col, "row_offset": 0, "landing_row": landing_row}
         self._redraw()
         self._animation_after_id = self.canvas.after(_ANIMATION_DELAY_MS, self._animate_piece_fall_step)

@@ -27,138 +27,112 @@ def _target_cells(percent):
     return round(max(0, min(100, percent)) / 100 * TOTAL_CELLS)
 
 
-def test_first_apply_state_fills_board_immediately_without_animation(root):
+def _run_piece_to_landing(widget):
+    """현재 낙하 중인 조각이 착지할 때까지 _animate_drop_step을 직접 호출해서
+    (칸당 150ms) 애니메이션을 실시간으로 기다리지 않고 건너뛴다. 착지 순간의
+    분기(합치기 또는 decorative 잔류)까지 정확히 한 번만 트리거한다."""
+    piece = widget._current_piece
+    while piece["row_offset"] < piece["landing_row"]:
+        widget._animate_drop_step()
+    widget._animate_drop_step()
+
+
+def test_widget_starts_with_empty_board_and_zero_target(root):
+    widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
+    assert filled_cell_count(widget._board) == 0
+    assert widget._target == 0
+    widget.top.destroy()
+
+
+def test_apply_state_updates_target_without_immediately_changing_board(root):
     widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
     widget.apply_state(_state(50), THRESHOLDS)
+    assert widget._target == _target_cells(50)
+    assert filled_cell_count(widget._board) == 0  # 아직 아무 조각도 착지하지 않음 -- 낙하는 점진적
+    widget.top.destroy()
 
-    target = _target_cells(50)
-    filled = filled_cell_count(widget._board)
-    assert target <= filled < target + 4
-    assert widget._animation_after_id is None
+
+def test_apply_state_with_lower_target_clears_board_immediately(root):
+    widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
+    widget._target = 40
+    # 두 줄(10칸)을 직접 채워서, 10%(target=5)로 낮아졌을 때 확실히 "감소" 분기를 타도록 함
+    grid = [[None] * COLS for _ in range(ROWS)]
+    grid[ROWS - 1] = ["O", "O", "O", "O", "O"]
+    grid[ROWS - 2] = ["O", "O", "O", "O", "O"]
+    widget._board = tuple(tuple(row) for row in grid)
+    assert filled_cell_count(widget._board) == 10
+
+    widget.apply_state(_state(10), THRESHOLDS)
+
+    assert filled_cell_count(widget._board) == 0
+    assert widget._target == _target_cells(10)
     assert widget._current_piece is None
     widget.top.destroy()
 
 
-def test_increasing_percent_spawns_a_falling_piece_without_immediately_filling_board(root):
+def test_spawn_piece_merges_into_board_when_below_target(root):
     widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
-    widget.apply_state(_state(10), THRESHOLDS)
-    filled_after_first = filled_cell_count(widget._board)
+    widget._target = 40  # 아직 한참 남음
 
-    widget.apply_state(_state(80), THRESHOLDS)
-
+    widget._spawn_piece()
     assert widget._current_piece is not None
-    assert widget._animation_after_id is not None
-    assert filled_cell_count(widget._board) == filled_after_first
-    widget.top.destroy()
+    assert widget._current_piece["decorative"] is False
 
+    _run_piece_to_landing(widget)
 
-def test_decreasing_percent_clears_board_immediately_without_animation(root):
-    widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
-    widget.apply_state(_state(80), THRESHOLDS)
-    assert filled_cell_count(widget._board) > 0
-
-    widget.apply_state(_state(10), THRESHOLDS)
-
-    target = _target_cells(10)
-    filled = filled_cell_count(widget._board)
-    assert target <= filled < target + 4
-    assert widget._animation_after_id is None
     assert widget._current_piece is None
+    assert filled_cell_count(widget._board) == 4  # 조각 하나(4칸)가 보드에 합쳐짐
     widget.top.destroy()
 
 
-def test_in_flight_piece_is_snapped_into_board_when_new_state_arrives(root):
+def test_spawn_piece_is_decorative_and_does_not_merge_when_target_already_reached(root):
     widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
-    widget.apply_state(_state(10), THRESHOLDS)
-    widget.apply_state(_state(80), THRESHOLDS)
+    widget._target = 0  # 빈 보드 기준으로 이미 목표 달성 상태
+
+    widget._spawn_piece()
     assert widget._current_piece is not None
-    filled_before = filled_cell_count(widget._board)
+    assert widget._current_piece["decorative"] is True
 
-    widget.apply_state(_state(90), THRESHOLDS)
+    _run_piece_to_landing(widget)
 
-    # the piece that was mid-flight must have been merged into the board (4 more cells),
-    # not discarded -- filled count only ever grows across these calls.
-    assert filled_cell_count(widget._board) >= filled_before + 4
-    widget.top.destroy()
-
-
-def test_in_flight_piece_is_discarded_cleanly_when_percent_decreases_mid_fall(root):
-    widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
-    widget.apply_state(_state(10), THRESHOLDS)
-    widget.apply_state(_state(80), THRESHOLDS)
+    # decorative 조각은 착지해도 곧바로 사라지지 않고 잠깐 머문다(잔류 타이머 대기 중)
     assert widget._current_piece is not None
-    assert widget._animation_after_id is not None
+    assert filled_cell_count(widget._board) == 0  # 보드에는 절대 합쳐지지 않음
 
-    # A decrease arrives while a piece is still mid-flight (10 -> 80 -> 5). The in-flight
-    # piece gets snapped into the board first (per the interrupt-snap logic), but the
-    # decrease branch then wipes the board and rebuilds instantly at the new lower
-    # target -- so no leaked cells and no leftover animation state should remain.
-    widget.apply_state(_state(5), THRESHOLDS)
-
-    target = _target_cells(5)
-    filled = filled_cell_count(widget._board)
+    widget._dissolve_decorative_piece()
     assert widget._current_piece is None
-    assert widget._animation_after_id is None
-    assert target <= filled < target + 4
+    assert filled_cell_count(widget._board) == 0
     widget.top.destroy()
 
 
-def test_choose_placement_failure_does_not_crash_or_spawn_piece(root):
+def test_spawn_piece_does_not_crash_when_board_fully_blocked(root):
     widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
 
-    # Top the board out: fill the very top row across every column. find_landing_row
-    # computes offset_limit = first_filled - 1 - dr for each occupied column, and every
-    # shape has a cell with dr == 0, so with first_filled == 0 that limit is -1 for every
-    # column and every shape -- choose_placement can never find a landing spot anywhere,
-    # mirroring the "board topped out" grid built in test_tetris_pieces.py.
+    # Top the board out: fill the very top row across every column, so no shape can
+    # ever land anywhere (mirrors the "board topped out" grid in test_tetris_pieces.py).
     grid = [[None] * COLS for _ in range(ROWS)]
     for col in range(COLS):
         grid[0][col] = "I"
     widget._board = tuple(tuple(row) for row in grid)
-    widget._initialized = True
+    widget._target = 40
 
-    # target(25) exceeds the current filled count (5), so apply_state takes the
-    # "increase" path and attempts to spawn a piece via choose_placement, which must
-    # fail silently instead of raising.
-    widget.apply_state(_state(50), THRESHOLDS)
+    widget._spawn_piece()
 
     assert widget._current_piece is None
-    assert widget._animation_after_id is None
-    # GAME OVER visibility must be driven only by headline_percent, never by the board
-    # being unable to reach its target.
+    assert widget._drop_after_id is not None  # 다음 낙하 시도가 예약되어야 함(포기하지 않음)
+    # GAME OVER 표시는 오직 headline_percent로만 결정되어야 하고, 보드가 막힌 것과는 무관해야 함
+    widget.apply_state(_state(50), THRESHOLDS)
     assert widget.canvas.itemcget(widget._game_over_text, "state") == "hidden"
     widget.top.destroy()
 
 
-def test_fill_instantly_reaches_target_when_only_narrow_shapes_fit(root):
+def test_spawn_piece_finds_narrow_shape_when_wide_shapes_blocked(root):
     widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
 
     # Block column 2 top-to-bottom so I (width 4) and every width-3 shape
     # (T, S, Z, J, L) can never land anywhere on the board -- only O (width 2) can
-    # still be placed, in the untouched column pairs (0,1) and (3,4). This mirrors
-    # the regression the reviewer found: picking a single random shape and giving up
-    # when it doesn't fit stalls the fill well before the target; trying multiple
-    # shapes must not.
-    grid = [[None] * COLS for _ in range(ROWS)]
-    for row in range(ROWS):
-        grid[row][2] = "I"
-    blocked_board = tuple(tuple(row) for row in grid)
-
-    # Target 35 cells (70%) is reachable using O alone: up to 40 non-blocked cells
-    # remain (columns 0, 1, 3, 4 across all 10 rows).
-    for seed in range(10):
-        widget._board = blocked_board
-        widget._rng = random.Random(seed)
-        widget._fill_instantly(35)
-        assert filled_cell_count(widget._board) >= 35
-
-    widget.top.destroy()
-
-
-def test_spawn_next_piece_succeeds_when_only_narrow_shapes_fit(root):
-    widget = CharacterWidget(root, (10, 10), on_move=lambda pos: None, on_right_click=lambda: None)
-    widget._initialized = True
-
+    # still be placed, in the untouched column pairs (0,1) and (3,4). This is the
+    # regression the multi-shape choose_shape_and_placement fallback protects against.
     grid = [[None] * COLS for _ in range(ROWS)]
     for row in range(ROWS):
         grid[row][2] = "I"
@@ -167,23 +141,14 @@ def test_spawn_next_piece_succeeds_when_only_narrow_shapes_fit(root):
     for seed in range(10):
         widget._board = blocked_board
         widget._current_piece = None
-        if widget._animation_after_id is not None:
-            widget.canvas.after_cancel(widget._animation_after_id)
-            widget._animation_after_id = None
+        widget._target = 40
         widget._rng = random.Random(seed)
 
-        # target(30, i.e. 60%) exceeds the current filled count (10), so apply_state
-        # takes the "increase" path and spawns a piece via choose_shape_and_placement.
-        # Under the old "one shape, give up" logic this would fail on most seeds even
-        # though O always fits; it must now succeed every time.
-        widget.apply_state(_state(60), THRESHOLDS)
+        widget._spawn_piece()
 
         assert widget._current_piece is not None
         assert widget._current_piece["shape_id"] == "O"
 
-    if widget._animation_after_id is not None:
-        widget.canvas.after_cancel(widget._animation_after_id)
-        widget._animation_after_id = None
     widget.top.destroy()
 
 

@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude 사용량 위젯 — 시작하기</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body, h1, h2, p, ol, ul, li, figure { margin: 0; padding: 0; }
+
+  :root {
+    --ground: #F2F5F8;
+    --surface: #FFFFFF;
+    --surface-sunk: #E8EFF5;
+    --ink: #173350;
+    --ink-soft: #5A7186;
+    --line: #D9E3EC;
+    --accent: #3B82F6;
+    --accent-soft: #E7F0FE;
+    --glass: #BFE0F7;
+    --cream: #FFEDD0;
+    --alert: #C0392B;
+    --alert-line: #EF4444;
+    --alert-bg: #FDF0EE;
+    --chrome-bar: #DEE4EA;
+    --chrome-panel: #FFFFFF;
+    --chrome-line: #CDD6DF;
+    --shadow: 0 1px 2px rgba(23, 51, 80, .06), 0 8px 24px -12px rgba(23, 51, 80, .18);
+
+    --font-sans: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+    --font-mono: "Cascadia Mono", Consolas, "D2Coding", ui-monospace, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1B27;
+      --surface: #16283A;
+      --surface-sunk: #101F2E;
+      --ink: #E3EDF5;
+      --ink-soft: #92AABF;
+      --line: #27435C;
+      --accent: #6FA8FF;
+      --accent-soft: #1B3450;
+      --glass: #2F5273;
+      --cream: #57492D;
+      --alert: #FF8A80;
+      --alert-line: #FF6B6B;
+      --alert-bg: #2E1A1A;
+      --chrome-bar: #22384E;
+      --chrome-panel: #16283A;
+      --chrome-line: #2E4A64;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px -12px rgba(0, 0, 0, .6);
+    }
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  /* ---- header ---- */
+
+  .masthead {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  .masthead svg { width: 84px; height: auto; flex: none; }
+
+  .masthead-text { display: flex; flex-direction: column; gap: 6px; min-width: 260px; flex: 1; }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  h1 {
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    line-height: 1.25;
+    text-wrap: balance;
+  }
+
+  .lede { color: var(--ink-soft); font-size: 17px; }
+
+  /* ---- warning ---- */
+
+  .warning {
+    background: var(--alert-bg);
+    border: 1px solid var(--alert-line);
+    border-radius: 4px;
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .warning h2 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--alert);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .warning h2 svg { width: 17px; height: 17px; flex: none; }
+  .warning p { font-size: 15px; }
+  .warning strong { font-weight: 700; }
+
+  /* ---- steps ---- */
+
+  .step { display: flex; flex-direction: column; gap: 20px; }
+
+  .step-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+
+  .step-num {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .16em;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    padding: 2px 7px;
+    flex: none;
+  }
+
+  h2.step-title {
+    font-size: 23px;
+    font-weight: 700;
+    letter-spacing: -.015em;
+    text-wrap: balance;
+  }
+
+  .step > p { max-width: 62ch; }
+
+  .fig {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface-sunk);
+    padding: 22px;
+    overflow-x: auto;
+  }
+
+  .fig svg { display: block; width: 100%; min-width: 420px; height: auto; }
+
+  .fig-cap {
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+
+  ol.plain, ul.plain { padding-left: 22px; display: flex; flex-direction: column; gap: 8px; max-width: 62ch; }
+  ol.plain li, ul.plain li { padding-left: 4px; }
+  ol.plain { list-style: decimal; }
+  ul.plain { list-style: disc; }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: .88em;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-radius: 3px;
+    padding: 2px 6px;
+    white-space: nowrap;
+  }
+
+  .note {
+    border-left: 2px solid var(--glass);
+    padding: 4px 0 4px 18px;
+    color: var(--ink-soft);
+    font-size: 15px;
+    max-width: 62ch;
+  }
+
+  /* ---- faq ---- */
+
+  .faq { display: flex; flex-direction: column; gap: 0; border-top: 1px solid var(--line); }
+  .faq-item { border-bottom: 1px solid var(--line); padding: 20px 0; display: flex; flex-direction: column; gap: 8px; }
+  .faq-q { font-weight: 700; font-size: 16px; }
+  .faq-a { color: var(--ink-soft); font-size: 15px; max-width: 64ch; }
+
+  h2.section-title { font-size: 23px; font-weight: 700; letter-spacing: -.015em; margin-bottom: 4px; }
+
+  footer {
+    color: var(--ink-soft);
+    font-size: 13px;
+    border-top: 1px solid var(--line);
+    padding-top: 24px;
+    max-width: 62ch;
+  }
+
+  /* mockup type — set on the SVG so text inherits */
+  .mock { font-family: var(--font-sans); }
+  .mock .mono { font-family: var(--font-mono); }
+
+  @media (max-width: 560px) {
+    .page { padding: 36px 16px 64px; gap: 44px; }
+    h1 { font-size: 27px; }
+    h2.step-title, h2.section-title { font-size: 20px; }
+    .fig { padding: 14px; }
+  }
+
+  @media print {
+    body { background: #FFFFFF; }
+    .step, .warning, .faq-item { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <header class="masthead">
+    <!-- 위젯에 실제로 들어있는 모래시계 친구. 좌표계(0 0 40 58)도 위젯과 같다. -->
+    <svg viewBox="0 0 40 58" role="img" aria-label="파란 모래시계 캐릭터">
+      <defs>
+        <path id="hg-body" d="M3 13 C3 22, 15 24, 15 31.5 C15 39, 3 41, 3 50 L37 50 C37 41, 25 39, 25 31.5 C25 24, 37 22, 37 13 Z"/>
+        <clipPath id="hg-clip"><use href="#hg-body"/></clipPath>
+      </defs>
+      <!-- 흰 스티커 테두리 -->
+      <use href="#hg-body" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linejoin="round"/>
+      <ellipse cx="20" cy="13" rx="17" ry="5" fill="none" stroke="#FFFFFF" stroke-width="6"/>
+      <ellipse cx="20" cy="50" rx="17" ry="5" fill="none" stroke="#FFFFFF" stroke-width="6"/>
+      <!-- 유리 + 모래 -->
+      <use href="#hg-body" fill="#BFE0F7"/>
+      <g clip-path="url(#hg-clip)">
+        <rect x="0" y="22" width="40" height="10" fill="#3B82F6"/>
+        <ellipse cx="20" cy="22" rx="14" ry="2" fill="#BFE0F7"/>
+        <rect x="0" y="42" width="40" height="8" fill="#3B82F6"/>
+        <ellipse cx="20" cy="42" rx="12" ry="2.5" fill="#7FA9FB"/>
+      </g>
+      <use href="#hg-body" fill="none" stroke="#4A7FB0" stroke-width="2" stroke-linejoin="round"/>
+      <ellipse cx="20" cy="13" rx="17" ry="5" fill="#FFEDD0" stroke="#4A7FB0" stroke-width="2"/>
+      <ellipse cx="20" cy="50" rx="17" ry="5" fill="#FFEDD0" stroke="#4A7FB0" stroke-width="2"/>
+      <!-- 얼굴 -->
+      <ellipse cx="9.5" cy="24" rx="2.5" ry="1.5" fill="#F9A8C4" opacity=".8"/>
+      <ellipse cx="30.5" cy="24" rx="2.5" ry="1.5" fill="#F9A8C4" opacity=".8"/>
+      <ellipse cx="14.5" cy="20" rx="2" ry="2.4" fill="#173350"/>
+      <ellipse cx="25.5" cy="20" rx="2" ry="2.4" fill="#173350"/>
+      <ellipse cx="13.9" cy="18.9" rx=".6" ry=".65" fill="#FFFFFF"/>
+      <ellipse cx="24.9" cy="18.9" rx=".6" ry=".65" fill="#FFFFFF"/>
+      <path d="M16.5 25 Q20 27.8 23.5 25" fill="none" stroke="#173350" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+    <div class="masthead-text">
+      <p class="eyebrow">Windows 데스크톱 위젯</p>
+      <h1>Claude 사용량 위젯 시작하기</h1>
+      <p class="lede">바탕화면에 작게 떠서 지금 사용량이 얼마나 찼는지 보여줍니다. 처음 한 번만 설정하면 됩니다 — 5분이면 충분해요.</p>
+    </div>
+  </header>
+
+  <section class="warning">
+    <h2>
+      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1.2 15.2 14H.8L8 1.2Zm0 3.6a.85.85 0 0 0-.85.9l.2 3.5a.65.65 0 0 0 1.3 0l.2-3.5A.85.85 0 0 0 8 4.8Zm0 6.1a.9.9 0 1 0 0 1.8.9.9 0 0 0 0-1.8Z"/></svg>
+      쓰기 전에 꼭 읽어주세요
+    </h2>
+    <p>이 위젯은 Anthropic이 공식적으로 지원하지 않는 방법(claude.ai가 내부적으로 쓰는 통로)으로 사용량을 읽어옵니다. <strong>Anthropic이 내부 구조를 바꾸면 예고 없이 멈출 수 있습니다.</strong></p>
+    <p>설정에 넣는 <code>sessionKey</code>는 <strong>사실상 비밀번호와 같은 값입니다.</strong> 이 값을 가진 사람은 여러분의 Claude 계정에 로그인한 것과 다름없습니다. 위젯은 이 값을 Windows 자격 증명 관리자에 암호화해서 저장하고 claude.ai 외에는 어디로도 보내지 않지만, <strong>이 값 자체를 다른 사람에게 알려주거나 캡처해서 공유하지 마세요.</strong></p>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <span class="step-num">STEP 01</span>
+      <h2 class="step-title">파일 실행하기</h2>
+    </div>
+    <p><code>ClaudeUsageWidget.exe</code>를 더블클릭하세요. 파란 경고창이 뜰 텐데, <strong>정상입니다.</strong> 개발자 서명이 없는 프로그램이면 윈도우가 항상 이렇게 물어봅니다.</p>
+
+    <div class="fig">
+      <svg viewBox="0 0 560 220" class="mock" role="img" aria-label="윈도우 SmartScreen 경고창에서 추가 정보를 누른 뒤 실행을 누르는 모습">
+        <rect x="8" y="8" width="360" height="204" rx="3" fill="#0F5FA8"/>
+        <text x="30" y="52" fill="#FFFFFF" font-size="19" font-weight="700">Windows의 PC 보호</text>
+        <text x="30" y="82" fill="#D6E7F7" font-size="12.5">Microsoft Defender SmartScreen에서 인식할 수 없는 앱의</text>
+        <text x="30" y="101" fill="#D6E7F7" font-size="12.5">시작을 차단했습니다.</text>
+
+        <text x="30" y="132" fill="#8FC2EC" font-size="12.5" text-decoration="underline">추가 정보</text>
+        <circle cx="97" cy="127" r="10" fill="#FFEDD0" stroke="#173350" stroke-width="1.5"/>
+        <text x="97" y="132" fill="#173350" font-size="12" font-weight="700" text-anchor="middle">1</text>
+
+        <circle cx="161" cy="181" r="10" fill="#FFEDD0" stroke="#173350" stroke-width="1.5"/>
+        <text x="161" y="186" fill="#173350" font-size="12" font-weight="700" text-anchor="middle">2</text>
+        <rect x="178" y="168" width="76" height="27" rx="2" fill="#0F5FA8" stroke="#8FC2EC" stroke-width="1"/>
+        <text x="216" y="186" fill="#FFFFFF" font-size="12.5" text-anchor="middle">실행</text>
+
+        <rect x="264" y="168" width="76" height="27" rx="2" fill="#0F5FA8" stroke="#8FC2EC" stroke-width="1" opacity=".35"/>
+        <text x="302" y="186" fill="#FFFFFF" font-size="12.5" text-anchor="middle" opacity=".45">실행 안 함</text>
+
+        <text x="398" y="88" fill="currentColor" font-size="13" font-weight="700">"추가 정보"를 먼저</text>
+        <text x="398" y="108" fill="currentColor" font-size="13" font-weight="700">눌러야 "실행" 버튼이</text>
+        <text x="398" y="128" fill="currentColor" font-size="13" font-weight="700">나타납니다.</text>
+        <path d="M430 140 C420 166, 330 178, 258 182" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3" opacity=".45"/>
+      </svg>
+      <p class="fig-cap">백신이 경고할 수도 있습니다. 이런 방식으로 만든 프로그램이 흔히 겪는 오탐이지만, 이 파일을 준 사람을 믿을 수 있을 때만 실행하세요.</p>
+    </div>
+
+    <p>실행하면 안내창이 하나 뜨고, 이어서 <strong>설정 창이 자동으로 열립니다.</strong> 그 창은 잠시 그대로 두고 다음 단계로 가세요.</p>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <span class="step-num">STEP 02</span>
+      <h2 class="step-title">Chrome에서 값 두 개 찾기</h2>
+    </div>
+    <p>위젯이 여러분의 사용량을 읽으려면 <strong>여러분의 로그인 정보</strong>가 필요합니다. Chrome에 이미 저장돼 있으니 꺼내오기만 하면 됩니다.</p>
+
+    <ol class="plain">
+      <li>Chrome에서 <strong>claude.ai에 로그인</strong>한 상태로 둡니다.</li>
+      <li><code>F12</code> 키를 누릅니다. 화면 옆이나 아래에 개발자 도구가 열립니다.</li>
+      <li>위쪽 탭에서 <strong>Application</strong>을 찾아 누릅니다. <span class="note" style="display:inline;border:0;padding:0">(안 보이면 탭 끝의 <code>»</code> 안에 있습니다.)</span></li>
+      <li>왼쪽 목록에서 <strong>Cookies → https://claude.ai</strong>를 누릅니다.</li>
+      <li>오른쪽 표에서 <code>sessionKey</code>와 <code>lastActiveOrg</code>를 찾습니다.</li>
+    </ol>
+
+    <div class="fig">
+      <svg viewBox="0 0 640 340" class="mock" role="img" aria-label="Chrome 개발자 도구의 Application 탭에서 Cookies 목록의 sessionKey와 lastActiveOrg 값을 찾는 화면">
+        <!-- browser frame -->
+        <rect x="8" y="8" width="624" height="324" rx="4" fill="var(--chrome-panel)" stroke="var(--chrome-line)"/>
+        <rect x="8" y="8" width="624" height="30" rx="4" fill="var(--chrome-bar)"/>
+        <rect x="8" y="30" width="624" height="8" fill="var(--chrome-bar)"/>
+        <circle cx="24" cy="23" r="4" fill="#E06C5E"/><circle cx="38" cy="23" r="4" fill="#E0B95E"/><circle cx="52" cy="23" r="4" fill="#7FC08A"/>
+        <rect x="70" y="15" width="150" height="16" rx="8" fill="var(--chrome-panel)"/>
+        <text x="80" y="27" fill="var(--ink-soft)" font-size="10" class="mono">claude.ai</text>
+
+        <!-- F12 key -->
+        <rect x="470" y="13" width="46" height="20" rx="3" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.5"/>
+        <text x="493" y="27" fill="var(--ink)" font-size="11" font-weight="700" text-anchor="middle" class="mono">F12</text>
+        <circle cx="533" cy="23" r="9" fill="#FFEDD0" stroke="#173350" stroke-width="1.5"/>
+        <text x="533" y="27" fill="#173350" font-size="11" font-weight="700" text-anchor="middle">1</text>
+
+        <!-- devtools tab bar -->
+        <line x1="8" y1="46" x2="632" y2="46" stroke="var(--chrome-line)"/>
+        <text x="24" y="63" fill="var(--ink-soft)" font-size="10.5">Elements</text>
+        <text x="80" y="63" fill="var(--ink-soft)" font-size="10.5">Console</text>
+        <text x="134" y="63" fill="var(--ink-soft)" font-size="10.5">Sources</text>
+        <text x="186" y="63" fill="var(--ink-soft)" font-size="10.5">Network</text>
+        <rect x="238" y="50" width="72" height="19" rx="2" fill="var(--accent-soft)"/>
+        <text x="274" y="63" fill="var(--accent)" font-size="10.5" font-weight="700" text-anchor="middle">Application</text>
+        <circle cx="326" cy="60" r="9" fill="#FFEDD0" stroke="#173350" stroke-width="1.5"/>
+        <text x="326" y="64" fill="#173350" font-size="11" font-weight="700" text-anchor="middle">2</text>
+        <text x="352" y="63" fill="var(--ink-soft)" font-size="10.5">»</text>
+        <line x1="8" y1="72" x2="632" y2="72" stroke="var(--chrome-line)"/>
+
+        <!-- left tree -->
+        <line x1="200" y1="72" x2="200" y2="332" stroke="var(--chrome-line)"/>
+        <text x="24" y="112" fill="var(--ink-soft)" font-size="10">Storage</text>
+        <text x="36" y="132" fill="var(--ink-soft)" font-size="10">▸ Local storage</text>
+        <text x="36" y="152" fill="var(--ink-soft)" font-size="10">▸ Session storage</text>
+        <text x="36" y="172" fill="var(--ink)" font-size="10" font-weight="700">▾ Cookies</text>
+        <rect x="44" y="180" width="146" height="18" rx="2" fill="var(--accent-soft)"/>
+        <text x="52" y="193" fill="var(--accent)" font-size="10" font-weight="700" class="mono">https://claude.ai</text>
+        <circle cx="164" cy="216" r="9" fill="#FFEDD0" stroke="#173350" stroke-width="1.5"/>
+        <text x="164" y="220" fill="#173350" font-size="11" font-weight="700" text-anchor="middle">3</text>
+        <path d="M155 208 C140 202, 130 198, 120 196" fill="none" stroke="#173350" stroke-width="1.2" opacity=".5"/>
+
+        <!-- cookie table -->
+        <text x="216" y="94" fill="var(--ink-soft)" font-size="9.5" font-weight="700" letter-spacing=".08em">NAME</text>
+        <text x="360" y="94" fill="var(--ink-soft)" font-size="9.5" font-weight="700" letter-spacing=".08em">VALUE</text>
+        <line x1="208" y1="102" x2="624" y2="102" stroke="var(--chrome-line)"/>
+
+        <text x="216" y="122" fill="var(--ink-soft)" font-size="10" class="mono">CH-prefers-color-scheme</text>
+        <text x="360" y="122" fill="var(--ink-soft)" font-size="10" class="mono">light</text>
+        <line x1="208" y1="130" x2="624" y2="130" stroke="var(--chrome-line)" opacity=".5"/>
+
+        <!-- lastActiveOrg row -->
+        <rect x="208" y="132" width="416" height="26" fill="var(--accent-soft)"/>
+        <text x="216" y="149" fill="var(--accent)" font-size="10" font-weight="700" class="mono">lastActiveOrg</text>
+        <text x="360" y="149" fill="var(--accent)" font-size="10" class="mono">a1b2c3d4-5e6f-7890-abcd-…</text>
+        <circle cx="606" cy="145" r="9" fill="#FFEDD0" stroke="#173350" stroke-width="1.5"/>
+        <text x="606" y="149" fill="#173350" font-size="11" font-weight="700" text-anchor="middle">4</text>
+        <line x1="208" y1="158" x2="624" y2="158" stroke="var(--chrome-line)" opacity=".5"/>
+
+        <text x="216" y="178" fill="var(--ink-soft)" font-size="10" class="mono">activitySessionId</text>
+        <text x="360" y="178" fill="var(--ink-soft)" font-size="10" class="mono">9f8e7d6c…</text>
+        <line x1="208" y1="186" x2="624" y2="186" stroke="var(--chrome-line)" opacity=".5"/>
+
+        <!-- sessionKey row -->
+        <rect x="208" y="188" width="416" height="26" fill="var(--accent-soft)"/>
+        <text x="216" y="205" fill="var(--accent)" font-size="10" font-weight="700" class="mono">sessionKey</text>
+        <text x="360" y="205" fill="var(--accent)" font-size="10" class="mono">sk-ant-sid01-XxYy…</text>
+        <circle cx="606" cy="201" r="9" fill="#FFEDD0" stroke="#173350" stroke-width="1.5"/>
+        <text x="606" y="205" fill="#173350" font-size="11" font-weight="700" text-anchor="middle">5</text>
+        <line x1="208" y1="214" x2="624" y2="214" stroke="var(--chrome-line)" opacity=".5"/>
+
+        <text x="216" y="234" fill="var(--ink-soft)" font-size="10" class="mono">__cf_bm</text>
+        <text x="360" y="234" fill="var(--ink-soft)" font-size="10" class="mono">Ab3dEf…</text>
+
+        <!-- callout -->
+        <rect x="216" y="258" width="408" height="62" rx="3" fill="var(--surface-sunk)" stroke="var(--line)"/>
+        <text x="230" y="279" fill="var(--ink)" font-size="11" font-weight="700">이 두 줄만 있으면 됩니다</text>
+        <text x="230" y="298" fill="var(--ink-soft)" font-size="10.5">줄을 누르면 아래에 값 전체가 나옵니다. 거기서 복사하세요 —</text>
+        <text x="230" y="313" fill="var(--ink-soft)" font-size="10.5">표에 보이는 건 잘려 있어서 그대로 쓰면 안 됩니다.</text>
+      </svg>
+      <p class="fig-cap">쿠키 목록은 사람마다 다릅니다. 위 그림에 없는 줄이 잔뜩 있어도 정상이니, <code>sessionKey</code>와 <code>lastActiveOrg</code> 두 개만 찾으면 됩니다.</p>
+    </div>
+
+    <p class="note">값이 아주 깁니다. 표에 보이는 글자는 중간이 잘려 있으니, 줄을 클릭한 다음 <strong>아래쪽에 펼쳐지는 전체 값</strong>을 복사하세요. 잘린 값을 넣으면 로그인이 안 됩니다.</p>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <span class="step-num">STEP 03</span>
+      <h2 class="step-title">설정 창에 붙여넣기</h2>
+    </div>
+    <p>아까 열려 있던 설정 창으로 돌아갑니다. 위의 칸 두 개만 채우면 되고, 나머지는 그대로 둬도 잘 작동합니다.</p>
+
+    <div class="fig">
+      <svg viewBox="0 0 560 330" class="mock" role="img" aria-label="위젯 설정 창. sessionKey와 Organization ID 칸에 값을 붙여넣고 저장을 누른다">
+        <rect x="60" y="8" width="440" height="314" rx="4" fill="var(--surface)" stroke="var(--line)"/>
+        <rect x="60" y="8" width="440" height="26" rx="4" fill="var(--chrome-bar)"/>
+        <rect x="60" y="28" width="440" height="6" fill="var(--chrome-bar)"/>
+        <text x="74" y="26" fill="var(--ink)" font-size="11" font-weight="700">설정</text>
+
+        <text x="78" y="62" fill="var(--ink)" font-size="11">sessionKey 쿠키 값</text>
+        <rect x="248" y="49" width="228" height="19" rx="2" fill="var(--surface-sunk)" stroke="var(--accent)" stroke-width="1.5"/>
+        <text x="256" y="63" fill="var(--ink-soft)" font-size="10" class="mono">••••••••••••••••••••••</text>
+        <circle cx="496" cy="58" r="9" fill="#FFEDD0" stroke="#173350" stroke-width="1.5"/>
+        <text x="496" y="62" fill="#173350" font-size="11" font-weight="700" text-anchor="middle">1</text>
+
+        <text x="78" y="92" fill="var(--ink)" font-size="11">Organization ID</text>
+        <rect x="248" y="79" width="228" height="19" rx="2" fill="var(--surface-sunk)" stroke="var(--accent)" stroke-width="1.5"/>
+        <text x="256" y="93" fill="var(--ink-soft)" font-size="10" class="mono">a1b2c3d4-5e6f-7890-abcd-…</text>
+        <circle cx="496" cy="88" r="9" fill="#FFEDD0" stroke="#173350" stroke-width="1.5"/>
+        <text x="496" y="92" fill="#173350" font-size="11" font-weight="700" text-anchor="middle">2</text>
+
+        <text x="78" y="122" fill="var(--ink-soft)" font-size="11">새로고침 주기(초, 최소 60)</text>
+        <rect x="248" y="109" width="54" height="19" rx="2" fill="var(--surface-sunk)" stroke="var(--line)"/>
+        <text x="256" y="123" fill="var(--ink-soft)" font-size="10" class="mono">180</text>
+
+        <text x="78" y="152" fill="var(--ink-soft)" font-size="11">주의 임계값(%)</text>
+        <rect x="248" y="139" width="54" height="19" rx="2" fill="var(--surface-sunk)" stroke="var(--line)"/>
+        <text x="256" y="153" fill="var(--ink-soft)" font-size="10" class="mono">60</text>
+
+        <text x="78" y="182" fill="var(--ink-soft)" font-size="11">위험 임계값(%)</text>
+        <rect x="248" y="169" width="54" height="19" rx="2" fill="var(--surface-sunk)" stroke="var(--line)"/>
+        <text x="256" y="183" fill="var(--ink-soft)" font-size="10" class="mono">85</text>
+
+        <text x="78" y="212" fill="var(--ink-soft)" font-size="11">위젯에 표시할 사용량</text>
+        <rect x="248" y="199" width="130" height="19" rx="2" fill="var(--surface-sunk)" stroke="var(--line)"/>
+        <text x="256" y="213" fill="var(--ink-soft)" font-size="10">세션/주간 중 높은 쪽</text>
+        <path d="M366 206 l4 5 l4 -5" fill="none" stroke="var(--ink-soft)" stroke-width="1.2"/>
+
+        <text x="78" y="242" fill="var(--ink-soft)" font-size="11">위젯 모양</text>
+        <rect x="248" y="229" width="92" height="19" rx="2" fill="var(--surface-sunk)" stroke="var(--line)"/>
+        <text x="256" y="243" fill="var(--ink-soft)" font-size="10">테트리스</text>
+        <path d="M328 236 l4 5 l4 -5" fill="none" stroke="var(--ink-soft)" stroke-width="1.2"/>
+
+        <rect x="78" y="262" width="10" height="10" rx="2" fill="var(--surface-sunk)" stroke="var(--line)"/>
+        <text x="96" y="271" fill="var(--ink-soft)" font-size="11">사용 크레딧 표시</text>
+        <rect x="78" y="282" width="10" height="10" rx="2" fill="var(--surface-sunk)" stroke="var(--line)"/>
+        <text x="96" y="291" fill="var(--ink-soft)" font-size="11">PC 시작 시 자동 실행</text>
+
+        <rect x="245" y="298" width="70" height="21" rx="2" fill="var(--accent)"/>
+        <text x="280" y="313" fill="#FFFFFF" font-size="11" font-weight="700" text-anchor="middle">저장</text>
+        <circle cx="335" cy="308" r="9" fill="#FFEDD0" stroke="#173350" stroke-width="1.5"/>
+        <text x="335" y="312" fill="#173350" font-size="11" font-weight="700" text-anchor="middle">3</text>
+      </svg>
+      <p class="fig-cap"><strong>1</strong> sessionKey 붙여넣기 · <strong>2</strong> lastActiveOrg 값 붙여넣기 · <strong>3</strong> 저장. sessionKey 칸은 어깨너머로 보이지 않게 점으로 가려집니다.</p>
+    </div>
+
+    <p>저장하면 잠시 뒤 바탕화면에 위젯이 나타나고 숫자가 채워집니다. <strong>여기까지 하면 끝입니다.</strong></p>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <span class="step-num">STEP 04</span>
+      <h2 class="step-title">쓰는 법</h2>
+    </div>
+
+    <ul class="plain">
+      <li><strong>옮기기</strong> — 위젯을 끌어다 원하는 자리에 놓으면 위치를 기억합니다.</li>
+      <li><strong>자세히 보기</strong> — 위젯에 <strong>마우스를 올리면</strong> 세션/주간이 한 줄로 뜨고, <strong>오른쪽 버튼</strong>을 누르면 전체 목록과 새로고침·설정·종료 버튼이 나옵니다.</li>
+      <li><strong>모양 바꾸기</strong> — 설정의 <strong>위젯 모양</strong>에서 셋 중에 고르세요.</li>
+      <li><strong>색이 곧 신호</strong> — 파랑은 여유, 노랑은 주의, 빨강은 위험. 한도에 가까울수록 <strong>더 자주 움직입니다.</strong></li>
+    </ul>
+
+    <div class="fig">
+      <svg viewBox="0 0 560 200" class="mock" role="img" aria-label="세 가지 위젯 모양 — 테트리스, 모래시계, 숫자">
+        <!-- 바탕화면 색 배경. 위젯의 흰 스티커 테두리는 밝은 바탕에선 안 보여서,
+             실제로 보이는 모습대로 보여주려면 어두운 바탕이 필요하다. -->
+        <rect x="24" y="10" width="512" height="112" rx="4" fill="#5A6B7C"/>
+        <!-- tetris -->
+        <g transform="translate(74 26)">
+          <rect x="1" y="1" width="44" height="84" rx="7" fill="none" stroke="#3B82F6" stroke-width="2"/>
+          <rect x="4.5" y="63" width="17" height="7" rx="2" fill="#3B82F6" stroke="#1B429B" stroke-width="1"/>
+          <rect x="23" y="63" width="17" height="7" rx="2" fill="#EF4444" stroke="#8B1F1F" stroke-width="1"/>
+          <rect x="4.5" y="71" width="25" height="7" rx="2" fill="#F59E0B" stroke="#8C5A03" stroke-width="1"/>
+          <rect x="31" y="71" width="9" height="7" rx="2" fill="#22C55E" stroke="#11642C" stroke-width="1"/>
+          <rect x="4.5" y="79" width="17" height="5.5" rx="2" fill="#EAB308" stroke="#856A05" stroke-width="1"/>
+          <rect x="23" y="79" width="17" height="5.5" rx="2" fill="#06B6D4" stroke="#046374" stroke-width="1"/>
+          <rect x="12" y="26" width="21" height="8" rx="2.5" fill="#A855F7" stroke="#54217C" stroke-width="1"/>
+          <rect x="18" y="33" width="9" height="8" rx="2.5" fill="#A855F7" stroke="#54217C" stroke-width="1"/>
+          <ellipse cx="19.5" cy="30" rx="1" ry="1.2" fill="#1F2937"/>
+          <ellipse cx="25.5" cy="30" rx="1" ry="1.2" fill="#1F2937"/>
+          <path d="M20.5 33 Q22.5 34.6 24.5 33" fill="none" stroke="#1F2937" stroke-width=".9" stroke-linecap="round"/>
+        </g>
+        <text x="96" y="142" fill="var(--ink)" font-size="12" font-weight="700" text-anchor="middle">테트리스</text>
+        <text x="96" y="160" fill="var(--ink-soft)" font-size="10.5" text-anchor="middle">쌓일수록 한도가 참</text>
+
+        <!-- hourglass -->
+        <g transform="translate(260 39)">
+          <use href="#hg-body" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linejoin="round"/>
+          <ellipse cx="20" cy="13" rx="17" ry="5" fill="none" stroke="#FFFFFF" stroke-width="6"/>
+          <ellipse cx="20" cy="50" rx="17" ry="5" fill="none" stroke="#FFFFFF" stroke-width="6"/>
+          <use href="#hg-body" fill="#FCE7C0"/>
+          <g clip-path="url(#hg-clip)">
+            <rect x="0" y="27" width="40" height="5" fill="#F59E0B"/>
+            <rect x="0" y="38" width="40" height="12" fill="#F59E0B"/>
+            <ellipse cx="20" cy="38" rx="13" ry="2.5" fill="#F8C86A"/>
+          </g>
+          <use href="#hg-body" fill="none" stroke="#B4780E" stroke-width="2" stroke-linejoin="round"/>
+          <ellipse cx="20" cy="13" rx="17" ry="5" fill="#FFF6E2" stroke="#B4780E" stroke-width="2"/>
+          <ellipse cx="20" cy="50" rx="17" ry="5" fill="#FFF6E2" stroke="#B4780E" stroke-width="2"/>
+          <ellipse cx="9.5" cy="24" rx="2.5" ry="1.5" fill="#F48FA8" opacity=".8"/>
+          <ellipse cx="30.5" cy="24" rx="2.5" ry="1.5" fill="#F48FA8" opacity=".8"/>
+          <path d="M12 15.5 L16.5 16.5" stroke="#4A2F02" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M28 15.5 L23.5 16.5" stroke="#4A2F02" stroke-width="1.4" stroke-linecap="round"/>
+          <ellipse cx="14.5" cy="20" rx="2.4" ry="1.7" fill="#4A2F02"/>
+          <ellipse cx="25.5" cy="20" rx="2.4" ry="1.7" fill="#4A2F02"/>
+          <path d="M16.5 26.5 Q18.25 25.4 20 26.5 Q21.75 27.6 23.5 26.5" fill="none" stroke="#4A2F02" stroke-width="1.4" stroke-linecap="round"/>
+        </g>
+        <text x="280" y="142" fill="var(--ink)" font-size="12" font-weight="700" text-anchor="middle">모래시계</text>
+        <text x="280" y="160" fill="var(--ink-soft)" font-size="10.5" text-anchor="middle">다 떨어지면 한도가 참</text>
+
+        <!-- number -->
+        <g transform="translate(440 42)">
+          <text x="34" y="23" font-size="22" font-weight="900" text-anchor="end" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round">92</text>
+          <text x="35" y="21" font-size="13" font-weight="900" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round">%</text>
+          <text x="34" y="23" fill="#EF4444" font-size="22" font-weight="900" text-anchor="end">92</text>
+          <text x="35" y="21" fill="#EF4444" font-size="13" font-weight="900">%</text>
+          <ellipse cx="24" cy="40" rx="10.5" ry="4" fill="#FFFFFF"/>
+          <ellipse cx="24" cy="40" rx="9" ry="2.5" fill="#EF4444"/>
+        </g>
+        <text x="466" y="142" fill="var(--ink)" font-size="12" font-weight="700" text-anchor="middle">숫자</text>
+        <text x="466" y="160" fill="var(--ink-soft)" font-size="10.5" text-anchor="middle">퍼센트만 딱</text>
+      </svg>
+      <p class="fig-cap">같은 사용량이라도 보고 싶은 방식으로 고르면 됩니다. 언제든 설정에서 바꿀 수 있어요.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section-title">잘 안 될 때</h2>
+    <div class="faq">
+      <div class="faq-item">
+        <p class="faq-q">"재로그인이 필요해요"라고 뜹니다</p>
+        <p class="faq-a">sessionKey는 시간이 지나면 만료됩니다. claude.ai에서 로그아웃했을 때도 그렇습니다. STEP 02를 다시 해서 새 값을 넣어주세요. 값이 중간에 잘린 채 붙여넣어졌을 때도 같은 메시지가 뜹니다.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">위젯이 안 보입니다</p>
+        <p class="faq-a">화면 밖으로 끌고 나갔을 수 있습니다. 작업 표시줄 오른쪽 아래 <strong>트레이 아이콘</strong>을 오른쪽 클릭 → <strong>위젯 표시/숨김</strong>을 눌러보세요.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">숫자가 0이거나 회색입니다</p>
+        <p class="faq-a">아직 로그인 정보가 없다는 뜻입니다. 트레이 아이콘 오른쪽 클릭 → <strong>설정</strong>에서 두 값을 넣어주세요.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">PC를 켤 때마다 자동으로 띄우고 싶어요</p>
+        <p class="faq-a">설정에서 <strong>PC 시작 시 자동 실행</strong>을 체크하세요. 단, 켠 다음에 exe 파일을 다른 폴더로 옮기면 자동 실행이 깨집니다 — 옮겼다면 설정에서 체크를 껐다 다시 켜주세요.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">지우고 싶습니다</p>
+        <p class="faq-a">설정에서 자동 실행 체크를 끄고 위젯을 종료한 뒤 exe 파일을 지우면 됩니다. 저장된 로그인 정보까지 완전히 지우려면 <strong>Windows 자격 증명 관리자</strong>에서 <code>ClaudeUsageWidget</code> 항목을 삭제하세요.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>이 위젯은 Anthropic의 공식 제품이 아니며 Anthropic과 아무 관계가 없습니다. 개인이 쓰려고 만든 도구이고, claude.ai의 비공식 통로에 의존하기 때문에 언제든 멈출 수 있습니다.</p>
+  </footer>
+
+</div>
+</body>
+</html>

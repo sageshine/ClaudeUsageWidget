@@ -16,6 +16,16 @@ claude.ai(Pro/Max) 세션/주간 사용량과 크레딧을 화면에 항상 떠�
 3. `sessionKey` 값을 복사 (Organization ID는 `lastActiveOrg` 값)
 4. 위젯 우클릭 → 설정에 붙여넣기
 
+## 다른 사람에게 줄 때
+
+`dist/ClaudeUsageWidget.exe`와 `docs/setup-guide.html` 두 개를 같이 압축해서 보내면 됩니다.
+안내 파일은 그림이 들어간 단독 HTML이라 더블클릭하면 브라우저에서 바로 열리고, 인터넷도
+필요 없습니다. 받는 사람이 알아보기 쉽게 `설치안내.html` 정도로 이름을 바꿔서 보내세요.
+
+exe에는 만든 사람의 로그인 정보가 들어있지 않습니다 -- sessionKey는 Windows 자격 증명
+관리자에, 설정은 `%APPDATA%\ClaudeUsageWidget\`에 따로 저장되므로 받는 사람은 처음 실행
+상태에서 본인 값을 넣게 됩니다.
+
 ## 개발 환경에서 실행
 
 ```bash

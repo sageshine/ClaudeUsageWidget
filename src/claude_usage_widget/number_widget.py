@@ -3,9 +3,6 @@ import tkinter as tk
 from .widget_state import Mood, MOOD_COLORS, WidgetState
 
 _TRANSPARENT_KEY = "magenta"
-_CHIP_COLOR = "#1F2937"
-_CHIP_STIPPLE = "gray50"
-_CORNER_RADIUS = 10
 _FONT = ("Segoe UI", 15, "bold")
 
 
@@ -35,11 +32,6 @@ class NumberWidget:
         )
         self.canvas.pack()
 
-        # 어떤 바탕화면 위에서도 숫자가 잘 읽히도록, 반투명 어두운 알약 모양
-        # 배경을 먼저 깐다.
-        self._chip = self._create_rounded_rect(
-            0, 0, self.WIDTH, self.HEIGHT, _CORNER_RADIUS, fill=_CHIP_COLOR, stipple=_CHIP_STIPPLE, outline=""
-        )
         self._text = self.canvas.create_text(
             self.WIDTH / 2, self.HEIGHT / 2, text="0%", fill=MOOD_COLORS[Mood.CALM], font=_FONT
         )
@@ -56,23 +48,6 @@ class NumberWidget:
         self.canvas.bind("<Button-3>", lambda event: self._on_right_click())
         self.canvas.bind("<Enter>", self._show_tooltip)
         self.canvas.bind("<Leave>", self._hide_tooltip)
-
-    def _create_rounded_rect(self, x1, y1, x2, y2, r, **kwargs):
-        points = [
-            x1 + r, y1,
-            x2 - r, y1,
-            x2, y1,
-            x2, y1 + r,
-            x2, y2 - r,
-            x2, y2,
-            x2 - r, y2,
-            x1 + r, y2,
-            x1, y2,
-            x1, y2 - r,
-            x1, y1 + r,
-            x1, y1,
-        ]
-        return self.canvas.create_polygon(points, smooth=True, **kwargs)
 
     def apply_state(self, state: WidgetState, thresholds: dict) -> None:
         self._tooltip_text = state.tooltip

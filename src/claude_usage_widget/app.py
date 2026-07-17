@@ -92,9 +92,12 @@ class App:
         keeps showing actual session/weekly percentages instead of just an error line. The
         WARNING mood/color is kept as-is so the UI still signals something's wrong."""
         show_credit = self.config.get("show_credit", False)
-        state = resolve_state(result, self.config["thresholds"], show_credit)
+        metric = self.config.get("headline_metric", "max")
+        state = resolve_state(result, self.config["thresholds"], show_credit, headline_metric=metric)
         if isinstance(result, Exception) and not isinstance(result, AuthError) and self._last_snapshot is not None:
-            last_known = compute_widget_state(self._last_snapshot, self.config["thresholds"], show_credit)
+            last_known = compute_widget_state(
+                self._last_snapshot, self.config["thresholds"], show_credit, headline_metric=metric
+            )
             state = WidgetState(
                 mood=state.mood,
                 headline_percent=last_known.headline_percent,
@@ -273,6 +276,7 @@ class App:
         self.config["show_credit"] = values["show_credit"]
         self.config["autostart_enabled"] = values["autostart_enabled"]
         self.config["widget_style"] = values["widget_style"]
+        self.config["headline_metric"] = values["headline_metric"]
         config_module.save_config(self.config)
 
         if values["autostart_enabled"]:

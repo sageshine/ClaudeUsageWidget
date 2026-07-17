@@ -2,7 +2,14 @@ from datetime import datetime, timezone
 
 from claude_usage_widget.api_client import AuthError, TransientError
 from claude_usage_widget.models import CreditInfo, LimitInfo, ScopedLimit, UsageSnapshot
-from claude_usage_widget.widget_state import Mood, compute_widget_state, resolve_state
+from claude_usage_widget.widget_state import (
+    HEADLINE_MAX,
+    HEADLINE_SESSION,
+    HEADLINE_WEEKLY,
+    Mood,
+    compute_widget_state,
+    resolve_state,
+)
 
 THRESHOLDS = {"warning": 60, "danger": 85}
 
@@ -22,6 +29,59 @@ def test_compute_widget_state_calm_below_warning_threshold():
     state = compute_widget_state(_snapshot(9, 17), THRESHOLDS, True)
     assert state.mood == Mood.CALM
     assert state.headline_percent == 17
+
+
+def test_headline_defaults_to_whichever_limit_is_closer_to_full():
+    assert compute_widget_state(_snapshot(70, 17), THRESHOLDS, True).headline_percent == 70
+    assert compute_widget_state(_snapshot(9, 88), THRESHOLDS, True).headline_percent == 88
+
+
+def test_headline_metric_session_tracks_session_even_when_weekly_is_higher():
+    state = compute_widget_state(_snapshot(9, 88), THRESHOLDS, True, headline_metric=HEADLINE_SESSION)
+    assert state.headline_percent == 9
+    assert state.mood == Mood.CALM  # 주간이 위험해도 세션만 본다
+
+
+def test_headline_metric_weekly_tracks_weekly_even_when_session_is_higher():
+    state = compute_widget_state(_snapshot(88, 9), THRESHOLDS, True, headline_metric=HEADLINE_WEEKLY)
+    assert state.headline_percent == 9
+    assert state.mood == Mood.CALM
+
+
+def test_headline_metric_max_is_the_explicit_default():
+    state = compute_widget_state(_snapshot(9, 88), THRESHOLDS, True, headline_metric=HEADLINE_MAX)
+    assert state.headline_percent == 88
+
+
+def test_unknown_headline_metric_falls_back_to_max():
+    """설정 파일이 손으로 편집돼 이상한 값이 들어와도 위젯이 죽으면 안 된다."""
+    state = compute_widget_state(_snapshot(9, 88), THRESHOLDS, True, headline_metric="nonsense")
+    assert state.headline_percent == 88
+
+
+def test_detail_rows_mark_which_limit_the_widget_is_tracking():
+    """상세 패널엔 숫자가 여러 줄인데, 그중 어느 게 위젯의 그 숫자인지
+    표시가 없으면 알 수가 없다."""
+    session_state = compute_widget_state(_snapshot(9, 88), THRESHOLDS, True, headline_metric=HEADLINE_SESSION)
+    marked = [label for label, _ in session_state.detail_rows if "◀ 위젯" in label]
+    assert marked == ["현재 세션 ◀ 위젯"]
+
+    weekly_state = compute_widget_state(_snapshot(9, 88), THRESHOLDS, True, headline_metric=HEADLINE_WEEKLY)
+    marked = [label for label, _ in weekly_state.detail_rows if "◀ 위젯" in label]
+    assert marked == ["주간 한도 (전체 모델) ◀ 위젯"]
+
+
+def test_max_metric_marks_whichever_limit_currently_leads():
+    state = compute_widget_state(_snapshot(70, 17), THRESHOLDS, True, headline_metric=HEADLINE_MAX)
+    assert [label for label, _ in state.detail_rows if "◀ 위젯" in label] == ["현재 세션 ◀ 위젯"]
+
+    state = compute_widget_state(_snapshot(17, 70), THRESHOLDS, True, headline_metric=HEADLINE_MAX)
+    assert [label for label, _ in state.detail_rows if "◀ 위젯" in label] == ["주간 한도 (전체 모델) ◀ 위젯"]
+
+
+def test_resolve_state_passes_headline_metric_through():
+    state = resolve_state(_snapshot(9, 88), THRESHOLDS, True, headline_metric=HEADLINE_SESSION)
+    assert state.headline_percent == 9
 
 
 def test_compute_widget_state_warning_at_threshold():

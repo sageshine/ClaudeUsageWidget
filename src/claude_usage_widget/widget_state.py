@@ -30,6 +30,12 @@ MOOD_FACES = {
     Mood.SETUP_NEEDED: "?",
 }
 
+# 위젯이 대표로 보여줄 지표. "max"는 세션/주간 중 한도에 더 가까운 쪽을 자동으로
+# 고른다 -- 어느 쪽이든 먼저 차오르는 걸 놓치지 않는다.
+HEADLINE_MAX = "max"
+HEADLINE_SESSION = "session"
+HEADLINE_WEEKLY = "weekly"
+
 
 @dataclass
 class WidgetState:
@@ -50,13 +56,29 @@ def _format_reset_countdown(resets_at: datetime, now: datetime) -> str:
     return f"{minutes}분 후 재설정"
 
 
+def _headline_source(snapshot: UsageSnapshot, headline_metric: str) -> str:
+    """위젯이 실제로 따라갈 지표가 무엇인지 돌려준다 ("session" 또는 "weekly").
+    "max"는 지금 한도에 더 가까운 쪽으로 그때그때 정해진다."""
+    if headline_metric == HEADLINE_SESSION:
+        return HEADLINE_SESSION
+    if headline_metric == HEADLINE_WEEKLY:
+        return HEADLINE_WEEKLY
+    return HEADLINE_SESSION if snapshot.session.percent >= snapshot.weekly_all.percent else HEADLINE_WEEKLY
+
+
 def compute_widget_state(
-    snapshot: UsageSnapshot, thresholds: dict, show_credit: bool, now: datetime | None = None
+    snapshot: UsageSnapshot,
+    thresholds: dict,
+    show_credit: bool,
+    now: datetime | None = None,
+    headline_metric: str = HEADLINE_MAX,
 ) -> WidgetState:
     if now is None:
         now = datetime.now(timezone.utc)
 
-    headline = max(snapshot.session.percent, snapshot.weekly_all.percent)
+    source = _headline_source(snapshot, headline_metric)
+    headline = snapshot.session.percent if source == HEADLINE_SESSION else snapshot.weekly_all.percent
+
     if headline >= thresholds["danger"]:
         mood = Mood.DANGER
     elif headline >= thresholds["warning"]:
@@ -67,9 +89,18 @@ def compute_widget_state(
     session_countdown = _format_reset_countdown(snapshot.session.resets_at, now)
     tooltip = f"세션 {snapshot.session.percent}% ({session_countdown}) · 주간 {snapshot.weekly_all.percent}%"
 
+    # 위젯이 따라가는 줄에 표시를 남긴다 -- 안 그러면 상세 패널에 숫자가 여러 개
+    # 뜨는데 그중 어느 게 위젯의 그 숫자인지 알 수가 없다.
+    session_label = "현재 세션"
+    weekly_label = "주간 한도 (전체 모델)"
+    if source == HEADLINE_SESSION:
+        session_label += " ◀ 위젯"
+    else:
+        weekly_label += " ◀ 위젯"
+
     rows = [
-        ("현재 세션", snapshot.session.percent),
-        ("주간 한도 (전체 모델)", snapshot.weekly_all.percent),
+        (session_label, snapshot.session.percent),
+        (weekly_label, snapshot.weekly_all.percent),
     ]
     for scoped in snapshot.weekly_scoped:
         rows.append((f"주간 한도 ({scoped.model_name})", scoped.percent))
@@ -79,7 +110,13 @@ def compute_widget_state(
     return WidgetState(mood=mood, headline_percent=headline, tooltip=tooltip, detail_rows=rows)
 
 
-def resolve_state(result, thresholds: dict, show_credit: bool, now: datetime | None = None) -> WidgetState:
+def resolve_state(
+    result,
+    thresholds: dict,
+    show_credit: bool,
+    now: datetime | None = None,
+    headline_metric: str = HEADLINE_MAX,
+) -> WidgetState:
     if result is None:
         return WidgetState(
             mood=Mood.SETUP_NEEDED,
@@ -104,4 +141,4 @@ def resolve_state(result, thresholds: dict, show_credit: bool, now: datetime | N
             tooltip="일시적으로 갱신에 실패했어요 (마지막 값 유지)",
             detail_rows=[("네트워크 오류로 최신 값을 가져오지 못했어요.", None)],
         )
-    return compute_widget_state(result, thresholds, show_credit, now)
+    return compute_widget_state(result, thresholds, show_credit, now, headline_metric)

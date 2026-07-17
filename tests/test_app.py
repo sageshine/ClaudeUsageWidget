@@ -62,6 +62,7 @@ def test_on_settings_saved_persists_config_and_credentials(tmp_path, monkeypatch
         "show_credit": True,
         "autostart_enabled": True,
         "widget_style": "tetris",
+        "headline_metric": "max",
     })
 
     assert saved["session_key"] == "secret-token"
@@ -99,6 +100,7 @@ def test_on_settings_saved_disables_autostart_when_unchecked(tmp_path, monkeypat
         "show_credit": False,
         "autostart_enabled": False,
         "widget_style": "tetris",
+        "headline_metric": "max",
     })
 
     assert saved["autostart"] == "disabled"
@@ -141,6 +143,7 @@ def test_on_settings_saved_swaps_widget_when_style_changes(tmp_path, monkeypatch
         "show_credit": False,
         "autostart_enabled": False,
         "widget_style": "hourglass",
+        "headline_metric": "max",
     })
 
     assert instance.config["widget_style"] == "hourglass"
@@ -177,6 +180,7 @@ def test_on_settings_saved_does_not_swap_widget_when_style_unchanged(tmp_path, m
         "show_credit": False,
         "autostart_enabled": False,
         "widget_style": "tetris",
+        "headline_metric": "max",
     })
 
     assert instance.widget is old_widget
@@ -486,12 +490,40 @@ def test_transient_error_after_success_retains_last_known_numbers():
     state2 = instance._resolve_state(app_module.TransientError("network blip"))
 
     assert state2.mood == Mood.WARNING
-    session_row = next(row for row in state2.detail_rows if row[0] == "현재 세션")
-    weekly_row = next(row for row in state2.detail_rows if row[0] == "주간 한도 (전체 모델)")
+    # 라벨엔 위젯이 따라가는 줄을 가리키는 "◀ 위젯" 표시가 붙을 수 있다
+    session_row = next(row for row in state2.detail_rows if row[0].startswith("현재 세션"))
+    weekly_row = next(row for row in state2.detail_rows if row[0].startswith("주간 한도 (전체 모델)"))
     assert session_row[1] == 42
     assert weekly_row[1] == 17
     # Not just the old generic single-line error message.
     assert state2.detail_rows != [("네트워크 오류로 최신 값을 가져오지 못했어요.", None)]
+
+
+def test_resolve_state_passes_headline_metric_from_config():
+    """Finding 1과 같은 부류: headline_metric이 config에만 있고 실제 계산까지
+    전달되지 않으면 설정이 아무 일도 안 한다."""
+    instance = _make_refresh_test_instance()
+    snapshot = _snapshot(session_pct=9, weekly_pct=88)
+
+    instance.config["headline_metric"] = "session"
+    assert instance._resolve_state(snapshot).headline_percent == 9
+
+    instance.config["headline_metric"] = "weekly"
+    assert instance._resolve_state(snapshot).headline_percent == 88
+
+    instance.config["headline_metric"] = "max"
+    assert instance._resolve_state(snapshot).headline_percent == 88
+
+
+def test_transient_error_fallback_respects_headline_metric():
+    """마지막 성공값으로 되돌릴 때도 사용자가 고른 지표를 그대로 따라야 한다."""
+    instance = _make_refresh_test_instance()
+    instance.config["headline_metric"] = "session"
+    instance._last_snapshot = _snapshot(session_pct=42, weekly_pct=88)
+
+    state = instance._resolve_state(app_module.TransientError("network blip"))
+
+    assert state.headline_percent == 42
 
 
 def test_transient_error_without_prior_success_falls_back_to_generic_message():

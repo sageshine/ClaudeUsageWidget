@@ -89,6 +89,35 @@ def test_enforces_minimum_refresh_interval_of_60_seconds(root, monkeypatch):
     dialog.top.destroy()
 
 
+def test_headline_metric_dropdown_reflects_config_and_saves_selection(root, monkeypatch):
+    monkeypatch.setattr(settings_ui.messagebox, "showerror", lambda *a, **k: None)
+    saved = []
+    config = dict(DEFAULT_CONFIG)
+    config["headline_metric"] = "weekly"
+    dialog = settings_ui.SettingsDialog(root, config, on_save=saved.append)
+
+    assert dialog.headline_metric_var.get() == settings_ui.HEADLINE_METRIC_LABELS["weekly"]
+
+    dialog.headline_metric_var.set(settings_ui.HEADLINE_METRIC_LABELS["session"])
+    dialog._save()
+
+    assert saved[0]["headline_metric"] == "session"
+    dialog.top.destroy()
+
+
+def test_headline_metric_defaults_to_max_when_config_key_missing(root, monkeypatch):
+    monkeypatch.setattr(settings_ui.messagebox, "showerror", lambda *a, **k: None)
+    saved = []
+    config = dict(DEFAULT_CONFIG)
+    config.pop("headline_metric", None)  # 예전 버전에서 쓰던 config.json
+    dialog = settings_ui.SettingsDialog(root, config, on_save=saved.append)
+
+    dialog._save()
+
+    assert saved[0]["headline_metric"] == "max"
+    dialog.top.destroy()
+
+
 def test_widget_style_dropdown_reflects_config_and_saves_selection(root, monkeypatch):
     monkeypatch.setattr(settings_ui.messagebox, "showerror", lambda *a, **k: None)
     saved = []

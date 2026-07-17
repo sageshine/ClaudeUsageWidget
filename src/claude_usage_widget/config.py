@@ -6,6 +6,7 @@ DEFAULT_CONFIG = {
     "refresh_interval_seconds": 180,
     "widget_position": None,
     "widget_style": "tetris",  # "tetris", "hourglass" 또는 "number"
+    "headline_metric": "max",  # "max"(세션/주간 중 높은 쪽), "session" 또는 "weekly"
     "thresholds": {"warning": 60, "danger": 85},
     "show_credit": False,
     "autostart_enabled": False,

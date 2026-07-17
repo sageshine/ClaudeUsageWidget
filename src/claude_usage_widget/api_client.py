@@ -37,19 +37,28 @@ def fetch_usage(session_key: str, org_id: str, timeout: float = 10.0) -> UsageSn
     return parse_usage_response(data)
 
 
+def _percent(value) -> int:
+    """claude.ai는 utilization을 10.4처럼 소수로 내려준다. 모델은 int로 선언돼
+    있고 위젯도 정수 자릿수에 맞춰 그리므로(50px 창에 "10.4"는 안 들어가서 앞
+    글자가 잘렸다) 파싱 경계에서 한 번만 정리한다."""
+    if value is None:
+        return 0
+    return int(round(float(value)))
+
+
 def parse_usage_response(data: dict) -> UsageSnapshot:
     session = LimitInfo(
-        percent=data["five_hour"]["utilization"],
+        percent=_percent(data["five_hour"]["utilization"]),
         resets_at=_parse_dt(data["five_hour"]["resets_at"]),
     )
     weekly_all = LimitInfo(
-        percent=data["seven_day"]["utilization"],
+        percent=_percent(data["seven_day"]["utilization"]),
         resets_at=_parse_dt(data["seven_day"]["resets_at"]),
     )
     weekly_scoped = [
         ScopedLimit(
             model_name=item["scope"]["model"]["display_name"],
-            percent=item["percent"],
+            percent=_percent(item["percent"]),
             resets_at=_parse_dt(item["resets_at"]),
         )
         for item in data.get("limits", [])
@@ -60,7 +69,7 @@ def parse_usage_response(data: dict) -> UsageSnapshot:
     limit = spend.get("limit")
     credit = CreditInfo(
         enabled=bool(spend.get("enabled")),
-        percent=spend.get("percent") or 0,
+        percent=_percent(spend.get("percent")),
         used_dollars=_minor_to_dollars(used),
         limit_dollars=_minor_to_dollars(limit) if limit else None,
     )

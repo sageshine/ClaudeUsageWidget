@@ -287,11 +287,15 @@ class App:
 
     def _swap_widget(self):
         """설정에서 위젯 모양을 바꾸면, 같은 위치에 새 위젯을 만들고 기존 것은
-        없앤다. 다음 새로고침이 새 위젯에 바로 상태를 반영해준다."""
+        없앤다. 다음 새로고침이 새 위젯에 바로 상태를 반영해준다.
+
+        widget.destroy()를 쓰는 이유: 위젯들은 저마다 canvas.after 애니메이션
+        루프를 돌리고 있어서, 예약된 콜백을 취소하지 않고 창만 없애면 남은
+        콜백이 사라진 캔버스를 건드리며 터진다."""
         pos = (self.widget.top.winfo_x(), self.widget.top.winfo_y())
         old_widget = self.widget
         self.widget = self._build_widget(pos)
-        old_widget.top.destroy()
+        old_widget.destroy()
 
     def _toggle_widget(self):
         """Invoked from the pystray background thread (tray menu item "위젯 표시/숨김"). Marshal

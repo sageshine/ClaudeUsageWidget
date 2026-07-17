@@ -8,22 +8,22 @@ from claude_usage_widget.widget_state import Mood, WidgetState
 
 
 class _FakeWidget:
-    def apply_state(self, state, thresholds):
-        pass
-
-
-class _FakeTop:
     def __init__(self):
         self.destroyed = False
 
+    def apply_state(self, state, thresholds):
+        pass
+
+    def destroy(self):
+        self.destroyed = True
+
+
+class _FakeTop:
     def winfo_x(self):
         return 100
 
     def winfo_y(self):
         return 200
-
-    def destroy(self):
-        self.destroyed = True
 
 
 class _FakeDetailPanel:
@@ -146,7 +146,9 @@ def test_on_settings_saved_swaps_widget_when_style_changes(tmp_path, monkeypatch
     assert instance.config["widget_style"] == "hourglass"
     assert built_positions == [(100, 200)]
     assert instance.widget is not old_widget
-    assert old_widget.top.destroyed is True
+    # widget.destroy() 여야 한다 -- top.destroy()만 하면 위젯이 돌리던 after
+    # 애니메이션 루프가 살아남아 사라진 캔버스를 건드린다.
+    assert old_widget.destroyed is True
 
 
 def test_on_settings_saved_does_not_swap_widget_when_style_unchanged(tmp_path, monkeypatch):
@@ -178,7 +180,7 @@ def test_on_settings_saved_does_not_swap_widget_when_style_unchanged(tmp_path, m
     })
 
     assert instance.widget is old_widget
-    assert old_widget.top.destroyed is False
+    assert old_widget.destroyed is False
 
 
 def test_fetch_result_returns_none_when_credentials_missing(tmp_path, monkeypatch):

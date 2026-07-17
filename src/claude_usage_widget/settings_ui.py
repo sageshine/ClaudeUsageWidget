@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-WIDGET_STYLE_LABELS = {"tetris": "테트리스", "hourglass": "모래시계"}
+WIDGET_STYLE_LABELS = {"tetris": "테트리스", "hourglass": "모래시계", "number": "숫자"}
 _WIDGET_STYLE_BY_LABEL = {label: value for value, label in WIDGET_STYLE_LABELS.items()}
 
 

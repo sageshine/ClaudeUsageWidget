@@ -10,6 +10,7 @@ from .autostart import disable_autostart, enable_autostart
 from .detail_panel import DetailPanel
 from .hourglass_widget import HourglassWidget
 from .logging_setup import get_logger
+from .number_widget import NumberWidget
 from .settings_ui import SettingsDialog
 from .tray import build_tray_icon, make_icon_image
 from .widget import CharacterWidget
@@ -17,7 +18,7 @@ from .widget_state import Mood, WidgetState, compute_widget_state, resolve_state
 
 logger = get_logger()
 
-_WIDGET_CLASSES = {"tetris": CharacterWidget, "hourglass": HourglassWidget}
+_WIDGET_CLASSES = {"tetris": CharacterWidget, "hourglass": HourglassWidget, "number": NumberWidget}
 
 
 class App:

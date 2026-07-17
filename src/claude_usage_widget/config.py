@@ -5,7 +5,7 @@ from pathlib import Path
 DEFAULT_CONFIG = {
     "refresh_interval_seconds": 180,
     "widget_position": None,
-    "widget_style": "tetris",  # "tetris" 또는 "hourglass"
+    "widget_style": "tetris",  # "tetris", "hourglass" 또는 "number"
     "thresholds": {"warning": 60, "danger": 85},
     "show_credit": False,
     "autostart_enabled": False,

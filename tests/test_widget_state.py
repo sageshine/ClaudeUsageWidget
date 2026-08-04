@@ -167,6 +167,17 @@ def test_compute_widget_state_tooltip_shows_minutes_only_under_one_hour():
     assert "시간" not in state.tooltip
 
 
+def test_compute_widget_state_tolerates_missing_session_reset_time():
+    """claude.ai가 resets_at을 null로 내려주는 경우(주로 아직 안 쓴 weekly_scoped
+    한도지만 방어적으로 session/weekly_all도 포함) 날짜 뺄셈에서 죽지 않아야 한다."""
+    snapshot = _snapshot(9, 17)
+    snapshot.session.resets_at = None
+
+    state = compute_widget_state(snapshot, THRESHOLDS, True)
+
+    assert "재설정 시간 확인 중" in state.tooltip
+
+
 def test_compute_widget_state_tooltip_shows_waiting_message_when_reset_time_already_passed():
     now = datetime(2026, 7, 14, 10, 0, 0, tzinfo=timezone.utc)
     snapshot = _snapshot(9, 17)

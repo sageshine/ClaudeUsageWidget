@@ -45,7 +45,9 @@ class WidgetState:
     detail_rows: list
 
 
-def _format_reset_countdown(resets_at: datetime, now: datetime) -> str:
+def _format_reset_countdown(resets_at: datetime | None, now: datetime) -> str:
+    if resets_at is None:
+        return "재설정 시간 확인 중"
     total_seconds = int((resets_at - now).total_seconds())
     if total_seconds <= 0:
         return "재설정 대기 중"

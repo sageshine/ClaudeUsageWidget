@@ -5,14 +5,14 @@ from datetime import datetime
 @dataclass
 class LimitInfo:
     percent: int
-    resets_at: datetime
+    resets_at: datetime | None
 
 
 @dataclass
 class ScopedLimit:
     model_name: str
     percent: int
-    resets_at: datetime
+    resets_at: datetime | None
 
 
 @dataclass

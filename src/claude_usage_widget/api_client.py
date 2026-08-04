@@ -82,7 +82,13 @@ def parse_usage_response(data: dict) -> UsageSnapshot:
     )
 
 
-def _parse_dt(value: str) -> datetime:
+def _parse_dt(value: str | None) -> datetime | None:
+    """claude.ai가 아직 한 번도 안 쓴 weekly_scoped 한도에는 resets_at을
+    null로 내려준다 (2026-08-03부터 관찰됨) -- 그걸 그대로 .replace()에
+    넘기면 매 요청마다 AttributeError로 죽고, 이건 TransientError가 아니라서
+    fetch_usage_with_retry의 재시도/백오프도 안 타고 즉시 실패한다."""
+    if value is None:
+        return None
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 

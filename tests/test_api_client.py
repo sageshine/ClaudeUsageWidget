@@ -53,6 +53,24 @@ def test_parse_usage_response_rounds_fractional_percents_to_int():
     assert snapshot.weekly_scoped[0].percent == 19  # 18.6 -> 19
 
 
+def test_parse_usage_response_tolerates_null_resets_at():
+    """claude.ai는 아직 한 번도 안 쓴 weekly_scoped 한도의 resets_at을 null로
+    내려준다(2026-08-03부터 실사용자 로그에서 관찰됨). 예전 코드는 이때
+    value.replace(...)에서 AttributeError로 죽었는데, TransientError가 아니라서
+    fetch_usage_with_retry의 재시도도 안 타고 매 새로고침마다 즉시 실패했다."""
+    data = dict(SAMPLE_RESPONSE)
+    data["limits"] = list(SAMPLE_RESPONSE["limits"])
+    data["limits"][-1] = {
+        "kind": "weekly_scoped",
+        "percent": 0,
+        "resets_at": None,
+        "scope": {"model": {"display_name": "Fable"}},
+    }
+    snapshot = parse_usage_response(data)
+    assert snapshot.weekly_scoped[0].resets_at is None
+    assert snapshot.weekly_scoped[0].percent == 0
+
+
 def test_parse_usage_response_converts_credit_minor_amount():
     data = dict(SAMPLE_RESPONSE)
     data["spend"] = {

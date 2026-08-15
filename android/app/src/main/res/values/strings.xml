@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Claude 사용량</string>
+    <string name="label_session_key">sessionKey</string>
+    <string name="label_org_id">Organization ID</string>
+    <string name="hint_session_key">claude.ai 쿠키의 sessionKey 값을 붙여넣으세요</string>
+    <string name="hint_org_id">claude.ai URL 또는 API 응답의 조직 ID</string>
+    <string name="button_start">저장하고 시작</string>
+    <string name="button_stop">중지</string>
+    <string name="disclaimer_title">시작하기 전에 확인해주세요</string>
+    <string name="disclaimer_body">이 앱은 claude.ai의 공식 API가 아닌, 브라우저가 쓰는 내부 API를 그대로 이용합니다. Anthropic이 언제든 이 방식을 막거나 바꿀 수 있고, 그러면 앱이 갑자기 안 될 수 있습니다.\n\nsessionKey는 이 기기의 암호화 저장소(Android Keystore)에만 저장되며, claude.ai 서버로만 전송됩니다. 다른 어떤 곳으로도 전송되지 않습니다.</string>
+    <string name="disclaimer_confirm">이해했습니다</string>
+    <string name="status_running">실행 중 — 상단 알림바를 확인하세요</string>
+    <string name="status_stopped">중지됨</string>
+    <string name="notification_channel_name">사용량 상시 표시</string>
+    <string name="notification_setup_needed">설정에서 sessionKey를 입력해주세요</string>
+    <string name="notification_auth_error">재로그인이 필요해요 (sessionKey 만료)</string>
+    <string name="notification_warning">일시적으로 갱신에 실패했어요 (마지막 값 유지)</string>
+</resources>

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -18,6 +19,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sessionKeyInput: TextInputEditText
     private lateinit var orgIdInput: TextInputEditText
     private lateinit var statusText: TextView
+    private lateinit var headlineMetricGroup: RadioGroup
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -31,9 +33,16 @@ class MainActivity : AppCompatActivity() {
         sessionKeyInput = findViewById(R.id.sessionKeyInput)
         orgIdInput = findViewById(R.id.orgIdInput)
         statusText = findViewById(R.id.statusText)
+        headlineMetricGroup = findViewById(R.id.headlineMetricGroup)
 
         SecureStore.sessionKey(this)?.let { sessionKeyInput.setText(it) }
         SecureStore.orgId(this)?.let { orgIdInput.setText(it) }
+
+        headlineMetricGroup.check(idForMetric(AppSettings.headlineMetric(this)))
+        headlineMetricGroup.setOnCheckedChangeListener { _, checkedId ->
+            AppSettings.setHeadlineMetric(this, metricForId(checkedId))
+            requestImmediateRefresh()
+        }
 
         findViewById<MaterialButton>(R.id.startButton).setOnClickListener {
             val sessionKey = sessionKeyInput.text?.toString()?.trim().orEmpty()
@@ -58,6 +67,25 @@ class MainActivity : AppCompatActivity() {
         if (!SecureStore.isDisclaimerAcked(this)) {
             showDisclaimer { }
         }
+    }
+
+    private fun idForMetric(metric: String): Int = when (metric) {
+        HEADLINE_SESSION -> R.id.metricSession
+        HEADLINE_WEEKLY -> R.id.metricWeekly
+        else -> R.id.metricMax
+    }
+
+    private fun metricForId(id: Int): String = when (id) {
+        R.id.metricSession -> HEADLINE_SESSION
+        R.id.metricWeekly -> HEADLINE_WEEKLY
+        else -> HEADLINE_MAX
+    }
+
+    /** 이미 실행 중인 서비스가 있다면 3분을 기다리지 않고 바로 새 설정으로 다시 그리게 한다. */
+    private fun requestImmediateRefresh() {
+        if (!SecureStore.hasCredentials(this)) return
+        val intent = Intent(this, UsageForegroundService::class.java).setAction(UsageForegroundService.ACTION_REFRESH_UI)
+        ContextCompat.startForegroundService(this, intent)
     }
 
     private fun showDisclaimer(onAck: () -> Unit) {

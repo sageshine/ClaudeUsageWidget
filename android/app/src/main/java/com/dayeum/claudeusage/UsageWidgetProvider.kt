@@ -32,7 +32,7 @@ class UsageWidgetProvider : AppWidgetProvider() {
             val label = when (state.mood) {
                 Mood.AUTH_ERROR -> "재로그인 필요"
                 Mood.SETUP_NEEDED -> "설정 필요"
-                else -> "Claude 사용량"
+                else -> state.metricLabel
             }
             views.setTextViewText(R.id.widgetLabel, label)
 

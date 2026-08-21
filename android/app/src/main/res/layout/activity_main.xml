@@ -39,6 +39,39 @@
             android:inputType="text" />
     </com.google.android.material.textfield.TextInputLayout>
 
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="@string/label_headline_metric"
+        android:textStyle="bold" />
+
+    <RadioGroup
+        android:id="@+id/headlineMetricGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <RadioButton
+            android:id="@+id/metricMax"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/label_metric_max" />
+
+        <RadioButton
+            android:id="@+id/metricSession"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/label_metric_session" />
+
+        <RadioButton
+            android:id="@+id/metricWeekly"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/label_metric_weekly" />
+
+    </RadioGroup>
+
     <com.google.android.material.button.MaterialButton
         android:id="@+id/startButton"
         android:layout_width="match_parent"

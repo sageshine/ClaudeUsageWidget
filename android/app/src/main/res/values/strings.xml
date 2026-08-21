@@ -6,6 +6,10 @@
     <string name="hint_session_key">claude.ai 쿠키의 sessionKey 값을 붙여넣으세요</string>
     <string name="hint_org_id">claude.ai URL 또는 API 응답의 조직 ID</string>
     <string name="button_start">저장하고 시작</string>
+    <string name="label_headline_metric">알림에 표시할 사용량</string>
+    <string name="label_metric_max">자동 (둘 중 더 높은 쪽)</string>
+    <string name="label_metric_session">세션 한도만</string>
+    <string name="label_metric_weekly">주간 한도만</string>
     <string name="button_stop">중지</string>
     <string name="disclaimer_title">시작하기 전에 확인해주세요</string>
     <string name="disclaimer_body">이 앱은 claude.ai의 공식 API가 아닌, 브라우저가 쓰는 내부 API를 그대로 이용합니다. Anthropic이 언제든 이 방식을 막거나 바꿀 수 있고, 그러면 앱이 갑자기 안 될 수 있습니다.\n\nsessionKey는 이 기기의 암호화 저장소(Android Keystore)에만 저장되며, claude.ai 서버로만 전송됩니다. 다른 어떤 곳으로도 전송되지 않습니다.</string>

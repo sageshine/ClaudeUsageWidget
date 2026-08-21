@@ -20,6 +20,7 @@ class UsageForegroundService : Service() {
     private var job: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
     private var lastState: WidgetState = WidgetState(Mood.SETUP_NEEDED, 0, "불러오는 중...")
+    private var lastSnapshot: UsageSnapshot? = null
 
     companion object {
         const val CHANNEL_ID = "usage_channel"
@@ -30,6 +31,9 @@ class UsageForegroundService : Service() {
         // Android 13+부터는 setOngoing(true)를 걸어도 사용자가 스와이프로 지울 수 있다.
         // 지워지는 즉시(deleteIntent) 곧바로 다시 띄워서 "안 지워지는" 것처럼 만든다.
         const val ACTION_REPOST = "com.dayeum.claudeusage.REPOST"
+        // 표시 지표(세션/주간) 설정을 바꾼 직후, 다음 3분 주기를 기다리지 않고
+        // 마지막으로 받아온 값으로 즉시 다시 계산해서 보여준다.
+        const val ACTION_REFRESH_UI = "com.dayeum.claudeusage.REFRESH_UI"
     }
 
     override fun onCreate() {
@@ -44,7 +48,21 @@ class UsageForegroundService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_REPOST -> {
+                startForeground(NOTIFICATION_ID, buildNotification(lastState))
                 updateNotification(lastState)
+                return START_STICKY
+            }
+            ACTION_REFRESH_UI -> {
+                val metric = AppSettings.headlineMetric(applicationContext)
+                val snapshot = lastSnapshot
+                val state = if (snapshot != null) {
+                    WidgetStateCalculator.resolve(FetchResult.Success(snapshot), metric)
+                } else {
+                    lastState
+                }
+                startForeground(NOTIFICATION_ID, buildNotification(state))
+                updateNotification(state)
+                startLoop()
                 return START_STICKY
             }
         }
@@ -59,12 +77,16 @@ class UsageForegroundService : Service() {
             while (true) {
                 val sessionKey = SecureStore.sessionKey(applicationContext)
                 val orgId = SecureStore.orgId(applicationContext)
-                val state = if (sessionKey.isNullOrBlank() || orgId.isNullOrBlank()) {
-                    WidgetStateCalculator.resolve(null)
+                val metric = AppSettings.headlineMetric(applicationContext)
+                val result = if (sessionKey.isNullOrBlank() || orgId.isNullOrBlank()) {
+                    null
                 } else {
-                    WidgetStateCalculator.resolve(ApiClient.fetchUsage(sessionKey, orgId))
+                    ApiClient.fetchUsage(sessionKey, orgId)
                 }
-                updateNotification(state)
+                if (result is FetchResult.Success) {
+                    lastSnapshot = result.snapshot
+                }
+                updateNotification(WidgetStateCalculator.resolve(result, metric))
                 delay(REFRESH_INTERVAL_MS)
             }
         }
@@ -79,9 +101,9 @@ class UsageForegroundService : Service() {
 
     private fun buildNotification(state: WidgetState): Notification {
         val title = when (state.mood) {
-            Mood.CALM -> "${state.headlinePercent}% 사용 중"
-            Mood.WARNING -> "${state.headlinePercent}% · 주의"
-            Mood.DANGER -> "${state.headlinePercent}% · 위험"
+            Mood.CALM -> "${state.metricLabel} ${state.headlinePercent}%"
+            Mood.WARNING -> "${state.metricLabel} ${state.headlinePercent}% · 주의"
+            Mood.DANGER -> "${state.metricLabel} ${state.headlinePercent}% · 위험"
             Mood.AUTH_ERROR -> "재로그인 필요"
             Mood.SETUP_NEEDED -> "설정 필요"
         }

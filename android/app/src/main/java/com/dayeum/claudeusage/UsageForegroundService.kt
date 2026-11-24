@@ -24,7 +24,10 @@ class UsageForegroundService : Service() {
     private var lastSnapshot: UsageSnapshot? = null
 
     companion object {
-        const val CHANNEL_ID = "usage_channel"
+        // 채널 중요도는 한 번 만들어지면 코드로 못 올린다. 삼성 One UI가 LOW 채널을 "무음 알림"으로
+        // 분류해 상태바 숫자를 숨기던 문제 때문에, 새 ID로 DEFAULT 채널을 만든다(소리/진동은 끔).
+        const val CHANNEL_ID = "usage_channel_v2"
+        const val OLD_CHANNEL_ID = "usage_channel"
         const val NOTIFICATION_ID = 1001
         // 데스크톱 위젯과 동일한 3분 주기.
         const val REFRESH_INTERVAL_MS = 3 * 60 * 1000L
@@ -162,7 +165,10 @@ class UsageForegroundService : Service() {
             .setColor(color)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setSilent(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setContentIntent(openIntent)
             .setDeleteIntent(deleteIntent)
             .addAction(0, "중지", stopIntent)
@@ -174,9 +180,14 @@ class UsageForegroundService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 getString(R.string.notification_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            )
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                setSound(null, null)
+                enableVibration(false)
+                setShowBadge(false)
+            }
             val manager = getSystemService(NotificationManager::class.java)
+            manager.deleteNotificationChannel(OLD_CHANNEL_ID)
             manager.createNotificationChannel(channel)
         }
     }

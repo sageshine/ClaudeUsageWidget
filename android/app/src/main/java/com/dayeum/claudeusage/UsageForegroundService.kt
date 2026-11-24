@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,6 +28,8 @@ class UsageForegroundService : Service() {
         const val NOTIFICATION_ID = 1001
         // 데스크톱 위젯과 동일한 3분 주기.
         const val REFRESH_INTERVAL_MS = 3 * 60 * 1000L
+        // 일시 오류 뒤에는 3분을 기다리지 않고 빨리 다시 시도한다.
+        const val RETRY_INTERVAL_MS = 30 * 1000L
         const val ACTION_STOP = "com.dayeum.claudeusage.STOP"
         // Android 13+부터는 setOngoing(true)를 걸어도 사용자가 스와이프로 지울 수 있다.
         // 지워지는 즉시(deleteIntent) 곧바로 다시 띄워서 "안 지워지는" 것처럼 만든다.
@@ -39,6 +42,9 @@ class UsageForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannel()
+        // 프로세스가 죽었다 되살아난 경우에도 "?"가 아니라 마지막으로 보이던 숫자부터 띄운다.
+        val cached = UsageCache.load(applicationContext)
+        if (cached.mood != Mood.SETUP_NEEDED && cached.mood != Mood.AUTH_ERROR) lastState = cached
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -75,22 +81,41 @@ class UsageForegroundService : Service() {
         if (job?.isActive == true) return
         job = scope.launch {
             while (true) {
-                val sessionKey = SecureStore.sessionKey(applicationContext)
-                val orgId = SecureStore.orgId(applicationContext)
-                val metric = AppSettings.headlineMetric(applicationContext)
-                val result = if (sessionKey.isNullOrBlank() || orgId.isNullOrBlank()) {
-                    null
-                } else {
-                    ApiClient.fetchUsage(sessionKey, orgId)
+                var nextDelay = REFRESH_INTERVAL_MS
+                try {
+                    val sessionKey = SecureStore.sessionKey(applicationContext)
+                    val orgId = SecureStore.orgId(applicationContext)
+                    val metric = AppSettings.headlineMetric(applicationContext)
+                    val result = if (sessionKey.isNullOrBlank() || orgId.isNullOrBlank()) {
+                        null
+                    } else {
+                        ApiClient.fetchUsage(sessionKey, orgId)
+                    }
+                    if (result is FetchResult.Success) {
+                        lastSnapshot = result.snapshot
+                    }
+                    val state = if (result is FetchResult.TransientError && hasLastValue()) {
+                        // 네트워크 일시 오류: 0%로 덮어쓰지 않고 마지막 값을 그대로 보여준다.
+                        nextDelay = RETRY_INTERVAL_MS
+                        lastSnapshot?.let { WidgetStateCalculator.resolve(FetchResult.Success(it), metric) } ?: lastState
+                    } else {
+                        if (result is FetchResult.TransientError) nextDelay = RETRY_INTERVAL_MS
+                        WidgetStateCalculator.resolve(result, metric)
+                    }
+                    updateNotification(state)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    // 예기치 못한 예외 하나로 갱신 루프 전체가 조용히 죽으면 알림 숫자가 영영 멈춘다.
+                    nextDelay = RETRY_INTERVAL_MS
                 }
-                if (result is FetchResult.Success) {
-                    lastSnapshot = result.snapshot
-                }
-                updateNotification(WidgetStateCalculator.resolve(result, metric))
-                delay(REFRESH_INTERVAL_MS)
+                delay(nextDelay)
             }
         }
     }
+
+    private fun hasLastValue(): Boolean =
+        lastSnapshot != null || lastState.mood in setOf(Mood.CALM, Mood.WARNING, Mood.DANGER)
 
     private fun updateNotification(state: WidgetState) {
         lastState = state
